@@ -1,0 +1,2 @@
+export const KATEGORILER_GIDER = ["Kira", "Maaş", "Elektrik / Su / Doğalgaz", "Kargo", "Reklam", "Vergi / SGK", "Bakım / Onarım", "Ambalaj", "Diğer"];
+export const KATEGORILER_GELIR = ["Kargo geliri", "Toptan satış", "Diğer"];

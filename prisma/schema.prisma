@@ -1,0 +1,433 @@
+// IQ Fashion - Cok Subeli Stok Takip Veritabani Semasi
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Rol {
+  SUPER_ADMIN
+  SUBE_MUDURU
+  KASIYER
+}
+
+enum HareketTipi {
+  ALIS
+  SATIS
+  IADE
+  TRANSFER_CIKIS
+  TRANSFER_GIRIS
+  DUZELTME_ARTIS
+  DUZELTME_AZALIS
+  SAYIM
+}
+
+enum OdemeTipi {
+  NAKIT
+  KART
+  HAVALE
+  KARISIK
+}
+
+enum SatisDurumu {
+  TAMAMLANDI
+  IPTAL
+}
+
+enum TransferDurumu {
+  BEKLEMEDE
+  YOLDA
+  TAMAMLANDI
+  IPTAL
+}
+
+enum KasaTipi {
+  GELIR
+  GIDER
+}
+
+enum Cinsiyet {
+  KADIN
+  ERKEK
+  COCUK
+  UNISEX
+}
+
+enum Sezon {
+  YAZLIK
+  KISLIK
+  IKI_SEZON
+}
+
+model Sube {
+  id        String   @id @default(cuid())
+  ad        String
+  kod       String   @unique
+  adres     String?
+  telefon   String?
+  aktif     Boolean  @default(true)
+  satisSayac Int     @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  kullanicilar   Kullanici[]
+  stoklar        Stok[]
+  hareketler     StokHareketi[]
+  satislar       Satis[]
+  alislar        AlisBelgesi[]
+  transferGiden  Transfer[]    @relation("TransferKaynak")
+  transferGelen  Transfer[]    @relation("TransferHedef")
+}
+
+model Kullanici {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  ad        String
+  sifreHash String
+  rol       Rol
+  subeId    String?
+  aktif     Boolean  @default(true)
+  sifreDegistirmeli Boolean @default(false)
+  sonGiris  DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sube      Sube?    @relation(fields: [subeId], references: [id])
+  oturumlar Oturum[]
+
+  @@index([subeId])
+}
+
+model Oturum {
+  id          String   @id @default(cuid())
+  kullaniciId String
+  tokenHash   String   @unique
+  expiresAt   DateTime
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  kullanici Kullanici @relation(fields: [kullaniciId], references: [id], onDelete: Cascade)
+
+  @@index([kullaniciId])
+  @@index([expiresAt])
+}
+
+// Giris hiz siniri (serverless'te bellek paylasilmadigi icin DB'de tutulur)
+model GirisDenemesi {
+  id        String   @id @default(cuid())
+  anahtar   String
+  basarili  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([anahtar, createdAt])
+}
+
+model Marka {
+  id       String  @id @default(cuid())
+  ad       String  @unique
+  urunler  Urun[]
+}
+
+model Kategori {
+  id      String @id @default(cuid())
+  ad      String @unique
+  urunler Urun[]
+}
+
+model Tedarikci {
+  id        String   @id @default(cuid())
+  ad        String   @unique
+  telefon   String?
+  email     String?
+  adres     String?
+  notlar    String?
+  createdAt DateTime @default(now())
+
+  urunler Urun[]
+  alislar AlisBelgesi[]
+}
+
+model Urun {
+  id          String    @id @default(cuid())
+  ad          String
+  markaId     String?
+  kategoriId  String?
+  cinsiyet    Cinsiyet?
+  sezon       Sezon?
+  aciklama    String?
+  gorselUrl   String?
+  tedarikciId String?
+  aktif       Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  marka     Marka?     @relation(fields: [markaId], references: [id])
+  kategori  Kategori?  @relation(fields: [kategoriId], references: [id])
+  tedarikci Tedarikci? @relation(fields: [tedarikciId], references: [id])
+  varyantlar Varyant[]
+
+  @@index([markaId])
+  @@index([kategoriId])
+  @@index([ad])
+}
+
+model Varyant {
+  id          String   @id @default(cuid())
+  urunId      String
+  renk        String
+  beden       String
+  barkod      String   @unique
+  sku         String   @unique
+  alisFiyati  Decimal  @default(0) @db.Decimal(12, 2)
+  satisFiyati Decimal  @default(0) @db.Decimal(12, 2)
+  minStok     Int      @default(1)
+  aktif       Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  urun        Urun            @relation(fields: [urunId], references: [id], onDelete: Cascade)
+  stoklar     Stok[]
+  hareketler  StokHareketi[]
+  fiyatGecmisi FiyatGecmisi[]
+
+  @@unique([urunId, renk, beden])
+  @@index([urunId])
+}
+
+model Stok {
+  varyantId String
+  subeId    String
+  miktar    Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  varyant Varyant @relation(fields: [varyantId], references: [id], onDelete: Cascade)
+  sube    Sube    @relation(fields: [subeId], references: [id])
+
+  @@id([varyantId, subeId])
+  @@index([subeId])
+}
+
+model StokHareketi {
+  id            String      @id @default(cuid())
+  tip           HareketTipi
+  varyantId     String?
+  subeId        String
+  miktar        Int
+  birimMaliyet  Decimal     @default(0) @db.Decimal(12, 2)
+  birimSatis    Decimal     @default(0) @db.Decimal(12, 2)
+  belgeTipi     String?
+  belgeId       String?
+  aciklama      String?
+  kullaniciId   String?
+  // Urun/kullanici silinse bile gecmis okunabilsin
+  urunAdiSnap   String?
+  barkodSnap    String?
+  kullaniciSnap String?
+  createdAt     DateTime    @default(now())
+
+  varyant Varyant? @relation(fields: [varyantId], references: [id], onDelete: SetNull)
+  sube    Sube     @relation(fields: [subeId], references: [id])
+
+  @@index([subeId, tip, createdAt])
+  @@index([varyantId])
+  @@index([belgeId])
+  @@index([createdAt])
+}
+
+model Satis {
+  id          String      @id @default(cuid())
+  no          String      @unique
+  subeId      String
+  kullaniciId String?
+  kullaniciSnap String?
+  odemeTipi   OdemeTipi
+  araToplam   Decimal     @db.Decimal(12, 2)
+  indirim     Decimal     @default(0) @db.Decimal(12, 2)
+  toplam      Decimal     @db.Decimal(12, 2)
+  maliyet     Decimal     @default(0) @db.Decimal(12, 2)
+  durum       SatisDurumu @default(TAMAMLANDI)
+  notlar      String?
+  createdAt   DateTime    @default(now())
+
+  sube    Sube           @relation(fields: [subeId], references: [id])
+  kalemler SatisKalemi[]
+
+  @@index([subeId, createdAt])
+  @@index([createdAt])
+}
+
+model SatisKalemi {
+  id           String  @id @default(cuid())
+  satisId      String
+  varyantId    String?
+  // Raporlar icin satis anindaki degerler saklanir
+  urunAdi      String
+  marka        String?
+  kategori     String?
+  renk         String
+  beden        String
+  barkod       String
+  miktar       Int
+  birimFiyat   Decimal @db.Decimal(12, 2)
+  birimMaliyet Decimal @db.Decimal(12, 2)
+  indirimPayi  Decimal @default(0) @db.Decimal(12, 2)
+  iadeAdet     Int     @default(0)
+
+  satis   Satis    @relation(fields: [satisId], references: [id], onDelete: Cascade)
+
+  @@index([satisId])
+  @@index([varyantId])
+  @@index([marka])
+}
+
+model AlisBelgesi {
+  id          String   @id @default(cuid())
+  no          String?
+  subeId      String
+  tedarikciId String?
+  kullaniciId String?
+  toplam      Decimal  @db.Decimal(12, 2)
+  notlar      String?
+  tarih       DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  sube      Sube        @relation(fields: [subeId], references: [id])
+  tedarikci Tedarikci?  @relation(fields: [tedarikciId], references: [id])
+  kalemler  AlisKalemi[]
+
+  @@index([subeId, tarih])
+}
+
+model AlisKalemi {
+  id         String  @id @default(cuid())
+  belgeId    String
+  varyantId  String?
+  urunAdi    String
+  renk       String
+  beden      String
+  barkod     String
+  miktar     Int
+  birimMaliyet Decimal @db.Decimal(12, 2)
+
+  belge AlisBelgesi @relation(fields: [belgeId], references: [id], onDelete: Cascade)
+
+  @@index([belgeId])
+}
+
+model Transfer {
+  id          String         @id @default(cuid())
+  no          String         @unique
+  kaynakSubeId String
+  hedefSubeId  String
+  durum       TransferDurumu @default(BEKLEMEDE)
+  kullaniciId String?
+  notlar      String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  kaynak   Sube            @relation("TransferKaynak", fields: [kaynakSubeId], references: [id])
+  hedef    Sube            @relation("TransferHedef", fields: [hedefSubeId], references: [id])
+  kalemler TransferKalemi[]
+
+  @@index([kaynakSubeId])
+  @@index([hedefSubeId])
+}
+
+model TransferKalemi {
+  id         String @id @default(cuid())
+  transferId String
+  varyantId  String
+  urunAdi    String
+  renk       String
+  beden      String
+  barkod     String
+  miktar     Int
+
+  transfer Transfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  @@index([transferId])
+}
+
+model FiyatGecmisi {
+  id        String   @id @default(cuid())
+  varyantId String
+  alis      Decimal  @db.Decimal(12, 2)
+  satis     Decimal  @db.Decimal(12, 2)
+  kullaniciId String?
+  createdAt DateTime @default(now())
+
+  varyant Varyant @relation(fields: [varyantId], references: [id], onDelete: Cascade)
+
+  @@index([varyantId, createdAt])
+}
+
+model DenetimKaydi {
+  id          String   @id @default(cuid())
+  kullaniciId String?
+  kullaniciSnap String?
+  eylem       String
+  nesne       String
+  nesneId     String?
+  detay       Json?
+  ip          String?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([kullaniciId])
+}
+
+// Gorsel hash onbellegi + kota takibi
+model AiKullanim {
+  id        String   @id @default(cuid())
+  hash      String?
+  saglayici String
+  gorev     String
+  basarili  Boolean
+  sonuc     Json?
+  kullaniciId String?
+  createdAt DateTime @default(now())
+
+  @@index([hash, gorev])
+  @@index([kullaniciId, createdAt])
+}
+
+model Ayar {
+  anahtar String @id
+  deger   String
+}
+
+// Atomik sayaclar (dahili barkod, transfer no...)
+model Sayac {
+  ad    String @id
+  deger Int    @default(0)
+}
+
+// Isletme gelir/giderleri (kira, maas, fatura, kargo...). Satis ve mal alimi ayri tablolardan gelir.
+model KasaKaydi {
+  id          String   @id @default(cuid())
+  tip         KasaTipi
+  kategori    String
+  tutar       Decimal  @db.Decimal(12, 2)
+  aciklama    String?
+  subeId      String?
+  kullaniciId String?
+  kullaniciSnap String?
+  tarih       DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([tip, tarih])
+  @@index([subeId, tarih])
+}
+// Urun gorselleri: istemcide kucultulmus (<=~120KB) dosya, harici servis gerektirmez
+model Gorsel {
+  id        String   @id @default(cuid())
+  mime      String
+  veri      Bytes
+  boyut     Int
+  createdAt DateTime @default(now())
+}
