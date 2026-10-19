@@ -75,6 +75,66 @@ export async function ozet(bas: Date, bit: Date, subeId?: string, baslangicSinir
   };
 }
 
+/**
+ * Anasayfadaki 4 dönemi (bugün/hafta/ay/yıl) TEK geçişte hesaplar: 16+ ayrı sorgu yerine 5 sorgu, veri bir kez taranır.
+ * Sonuç `donemOzetleri` ile birebir aynıdır (birim testle doğrulanır).
+ */
+export async function donemOzetleriHizli(subeId?: string, baslangicSiniri?: Date | null, simdi = new Date()) {
+  const donemler: Donem[] = ["bugun", "hafta", "ay", "yil"];
+  const ar = donemler.map((d) => donemAraligi(d, undefined, undefined, simdi));
+  const bas = ar.map((a) => (baslangicSiniri && baslangicSiniri > a.bas ? baslangicSiniri : a.bas));
+  const bit = ar.map((a) => a.bit);
+  const enBas = new Date(Math.min(...bas.map(Number)));
+  const enBit = new Date(Math.max(...bit.map(Number)));
+  const sut = (on: string, i: number) => Prisma.raw(`${on}${i}`);
+  const filtre = (kolon: Prisma.Sql, i: number) => Prisma.sql`FILTER (WHERE ${kolon} >= ${bas[i]} AND ${kolon} < ${bit[i]})`;
+  const hepsi = (f: (i: number) => Prisma.Sql) => Prisma.join([0, 1, 2, 3].map(f));
+
+  const satisKolon = Prisma.sql`s."createdAt"`;
+  const ciroIfade = Prisma.sql`(k."birimFiyat" * k."miktar" - k."indirimPayi") * (k."miktar" - k."iadeAdet") / NULLIF(k."miktar", 0)`;
+  const [satis, odeme, alis, alisAdet, kasa] = await Promise.all([
+    prisma.$queryRaw<Record<string, unknown>[]>`
+      SELECT ${hepsi((i) => Prisma.sql`COALESCE(SUM(${ciroIfade}) ${filtre(satisKolon, i)}, 0) AS ${sut("ciro", i)},
+             COALESCE(SUM(k."birimMaliyet" * (k."miktar" - k."iadeAdet")) ${filtre(satisKolon, i)}, 0) AS ${sut("maliyet", i)},
+             COALESCE(SUM(k."miktar" - k."iadeAdet") ${filtre(satisKolon, i)}, 0) AS ${sut("adet", i)},
+             COUNT(DISTINCT s."id") ${filtre(satisKolon, i)} AS ${sut("sayi", i)}`)}
+      FROM "SatisKalemi" k JOIN "Satis" s ON s."id" = k."satisId"
+      WHERE s."durum" = 'TAMAMLANDI' AND s."createdAt" >= ${enBas} AND s."createdAt" < ${enBit} ${subeSatis(subeId)}`,
+    prisma.$queryRaw<Record<string, unknown>[]>`
+      SELECT s."odemeTipi"::text AS tip, ${hepsi((i) => Prisma.sql`COALESCE(SUM(s."toplam") ${filtre(satisKolon, i)}, 0) AS ${sut("t", i)}`)}
+      FROM "Satis" s WHERE s."durum" = 'TAMAMLANDI' AND s."createdAt" >= ${enBas} AND s."createdAt" < ${enBit} ${subeSatis(subeId)}
+      GROUP BY s."odemeTipi"`,
+    prisma.$queryRaw<Record<string, unknown>[]>`
+      SELECT ${hepsi((i) => Prisma.sql`COALESCE(SUM(a."toplam") ${filtre(Prisma.sql`a."tarih"`, i)}, 0) AS ${sut("t", i)}`)}
+      FROM "AlisBelgesi" a WHERE a."tarih" >= ${enBas} AND a."tarih" < ${enBit} ${subeAlis(subeId)}`,
+    prisma.$queryRaw<Record<string, unknown>[]>`
+      SELECT ${hepsi((i) => Prisma.sql`COALESCE(SUM(ak."miktar") ${filtre(Prisma.sql`a."tarih"`, i)}, 0) AS ${sut("t", i)}`)}
+      FROM "AlisKalemi" ak JOIN "AlisBelgesi" a ON a."id" = ak."belgeId" WHERE a."tarih" >= ${enBas} AND a."tarih" < ${enBit} ${subeAlis(subeId)}`,
+    prisma.$queryRaw<Record<string, unknown>[]>`
+      SELECT "tip"::text AS tip, ${hepsi((i) => Prisma.sql`COALESCE(SUM("tutar") ${filtre(Prisma.sql`"tarih"`, i)}, 0) AS ${sut("t", i)}`)}
+      FROM "KasaKaydi" WHERE "tarih" >= ${enBas} AND "tarih" < ${enBit} ${subeKasa(subeId)} GROUP BY "tip"`,
+  ]);
+
+  const sonuc = {} as Record<Donem, Ozet & { bas: Date; bit: Date }>;
+  donemler.forEach((d, i) => {
+    const ciro = yuvarla(n(satis[0]?.[`ciro${i}`]));
+    const maliyet = yuvarla(n(satis[0]?.[`maliyet${i}`]));
+    const alisT = yuvarla(n(alis[0]?.[`t${i}`]));
+    const digerGelir = yuvarla(n(kasa.find((x) => x.tip === "GELIR")?.[`t${i}`]));
+    const isletme = yuvarla(n(kasa.find((x) => x.tip === "GIDER")?.[`t${i}`]));
+    const gelir = yuvarla(ciro + digerGelir);
+    const gider = yuvarla(alisT + isletme);
+    const od = { NAKIT: 0, KART: 0, HAVALE: 0, KARISIK: 0 };
+    for (const o of odeme) od[o.tip as keyof typeof od] = yuvarla(n(o[`t${i}`]));
+    sonuc[d] = {
+      bas: ar[i].bas, bit: ar[i].bit,
+      satis: ciro, satisAdet: n(satis[0]?.[`adet${i}`]), satisSayisi: n(satis[0]?.[`sayi${i}`]), maliyet, brutKar: yuvarla(ciro - maliyet),
+      alis: alisT, alisAdet: n(alisAdet[0]?.[`t${i}`]), digerGelir, isletmeGideri: isletme, gelir, gider, kasa: yuvarla(gelir - gider),
+      netKar: yuvarla(ciro - maliyet - isletme), odeme: od,
+    };
+  });
+  return sonuc;
+}
 /** Anasayfa: bugun / bu hafta / bu ay / bu yil */
 export async function donemOzetleri(subeId?: string, baslangicSiniri?: Date | null, simdi = new Date()) {
   const donemler: Donem[] = ["bugun", "hafta", "ay", "yil"];

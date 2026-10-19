@@ -13,7 +13,7 @@ import { paraFormat } from "@/lib/para";
 export type StokSatiri = { id: string; urunId: string; urun: string; marka: string | null; renk: string; beden: string; barkod: string; stok: number; min: number; alis: number | null; satis: number; subeStok: Record<string, number> };
 type Sube = { id: string; ad: string };
 
-export function StokIstemci({ satirlar, subeler, duzenleyebilir, subeSecili, tumu }: { satirlar: StokSatiri[]; subeler: Sube[]; duzenleyebilir: boolean; subeSecili: boolean; tumu: StokSatiri[] }) {
+export function StokIstemci({ satirlar, subeler, duzenleyebilir, subeSecili }: { satirlar: StokSatiri[]; subeler: Sube[]; duzenleyebilir: boolean; subeSecili: boolean }) {
   const router = useRouter();
   const bildir = useToast();
   const [duzelt, setDuzelt] = useState<StokSatiri | null>(null);
@@ -21,7 +21,7 @@ export function StokIstemci({ satirlar, subeler, duzenleyebilir, subeSecili, tum
   const [not, setNot] = useState("");
   const [yukleniyor, setYukleniyor] = useState(false);
   const [sayimAcik, setSayimAcik] = useState(false);
-  const [sayim, setSayim] = useState<Record<string, number>>({});
+  const [sayim, setSayim] = useState<Record<string, { adet: number; ad: string; renk: string; beden: string; sistem: number }>>({});
 
   async function duzeltKaydet() {
     if (!duzelt) return;
@@ -35,17 +35,19 @@ export function StokIstemci({ satirlar, subeler, duzenleyebilir, subeSecili, tum
   }
 
   async function sayimOkundu(kod: string) {
-    const v = tumu.find((x) => x.barkod === kod);
-    if (!v) { bip(false); return bildir(`Bu şubede/listede yok: ${kod}`, "hata"); }
-    bip(true);
-    setSayim((s) => ({ ...s, [v.id]: (s[v.id] ?? 0) + 1 }));
+    try {
+      const r = await api<{ bulundu: boolean; varyant?: { id: string; urunAdi: string; renk: string; beden: string; stok: number } }>(`/api/barkod/${encodeURIComponent(kod)}`);
+      if (!r.bulundu || !r.varyant) { bip(false); return bildir(`Kayıtlı değil: ${kod}`, "hata"); }
+      const v = r.varyant;
+      bip(true);
+      setSayim((s) => ({ ...s, [v.id]: { adet: (s[v.id]?.adet ?? 0) + 1, ad: v.urunAdi, renk: v.renk, beden: v.beden, sistem: v.stok } }));
+    } catch (e) { bip(false); bildir((e as Error).message, "hata"); }
   }
-
   async function sayimUygula() {
     setYukleniyor(true);
     let ok = 0;
     try {
-      for (const [id, adet] of Object.entries(sayim)) {
+      for (const [id, { adet }] of Object.entries(sayim)) {
         await api("/api/stok/duzelt", { govde: { varyantId: id, yeniMiktar: adet, sayim: true } });
         ok++;
       }
@@ -57,7 +59,7 @@ export function StokIstemci({ satirlar, subeler, duzenleyebilir, subeSecili, tum
   }
 
   if (satirlar.length === 0) return <BosDurum baslik="Kayıt bulunamadı" aciklama="Filtreyi değiştirin veya yeni ürün ekleyin." />;
-  const sayilanlar = Object.entries(sayim).map(([id, adet]) => ({ v: tumu.find((x) => x.id === id)!, adet })).filter((x) => x.v);
+  const sayilanlar = Object.entries(sayim).map(([id, s]) => ({ id, v: { urun: s.ad, renk: s.renk, beden: s.beden, stok: s.sistem }, adet: s.adet }));
 
   return (
     <>
@@ -114,13 +116,13 @@ export function StokIstemci({ satirlar, subeler, duzenleyebilir, subeSecili, tum
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-surface-2 text-xs text-muted"><tr><th className="px-3 py-2 text-left font-medium">Ürün</th><th className="px-3 py-2 text-right font-medium">Sistem</th><th className="px-3 py-2 text-right font-medium">Sayılan</th><th className="px-3 py-2 text-right font-medium">Fark</th><th className="w-10" /></tr></thead>
                 <tbody className="divide-y divide-border">
-                  {sayilanlar.map(({ v, adet }) => (
-                    <tr key={v.id}>
+                  {sayilanlar.map(({ id, v, adet }) => (
+                    <tr key={id}>
                       <td className="px-3 py-2">{v.urun} <span className="text-muted">{v.renk}/{v.beden}</span></td>
                       <td className="tabular px-3 py-2 text-right text-muted">{v.stok}</td>
-                      <td className="px-3 py-2 text-right"><input aria-label="Sayılan" inputMode="numeric" value={adet} onChange={(e) => setSayim((s) => ({ ...s, [v.id]: Number(e.target.value.replace(/\D/g, "")) }))} className="tabular w-16 rounded-lg border border-border bg-surface px-2 py-1 text-right" /></td>
+                      <td className="px-3 py-2 text-right"><input aria-label="Sayılan" inputMode="numeric" value={adet} onChange={(e) => setSayim((s) => ({ ...s, [id]: { ...s[id], adet: Number(e.target.value.replace(/\D/g, "")) } }))} className="tabular w-16 rounded-lg border border-border bg-surface px-2 py-1 text-right" /></td>
                       <td className={`tabular px-3 py-2 text-right font-medium ${adet === v.stok ? "text-muted" : adet > v.stok ? "text-ok" : "text-danger"}`}>{adet - v.stok > 0 ? "+" : ""}{adet - v.stok}</td>
-                      <td><button onClick={() => setSayim((s) => { const y = { ...s }; delete y[v.id]; return y; })} aria-label="Kaldır" className="grid size-8 place-items-center text-muted hover:text-danger"><Trash2 className="size-4" /></button></td>
+                      <td><button onClick={() => setSayim((s) => { const y = { ...s }; delete y[id]; return y; })} aria-label="Kaldır" className="grid size-8 place-items-center text-muted hover:text-danger"><Trash2 className="size-4" /></button></td>
                     </tr>
                   ))}
                 </tbody>

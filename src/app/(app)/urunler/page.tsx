@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AlertTriangle, PackagePlus, Search } from "lucide-react";
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { sayfaBaglami } from "@/lib/sayfa";
 import { maliyetGorebilir } from "@/lib/rbac";
@@ -18,32 +19,39 @@ export default async function UrunlerSayfasi({ searchParams }: { searchParams: P
   const sayfa = Math.max(1, Number(sp.sayfa) || 1);
   const yonetici = kullanici.rol !== "KASIYER";
 
-  const [markalar, kategoriler, urunler] = await Promise.all([
+  // "Düşük stok" filtresi veritabanında: stoğu minimuma inmiş varyantı olan ürün kimlikleri
+  const dusukIds = sp.dusuk
+    ? (await prisma.$queryRaw<{ urunId: string }[]>`
+        SELECT DISTINCT v."urunId" FROM "Varyant" v LEFT JOIN "Stok" st ON st."varyantId" = v."id" ${kapsam ? Prisma.sql`AND st."subeId" = ${kapsam}` : Prisma.empty}
+        WHERE v."aktif" = true GROUP BY v."id" HAVING COALESCE(SUM(st."miktar"), 0) <= v."minStok"`).map((x) => x.urunId)
+    : null;
+  const where: Prisma.UrunWhereInput = {
+    aktif: true,
+    ...(sp.marka ? { markaId: sp.marka } : {}),
+    ...(sp.kategori ? { kategoriId: sp.kategori } : {}),
+    ...(dusukIds ? { id: { in: dusukIds } } : {}),
+    ...(q ? { OR: [{ ad: { contains: q, mode: "insensitive" } }, { marka: { ad: { contains: q, mode: "insensitive" } } }, { varyantlar: { some: { OR: [{ barkod: { contains: q } }, { sku: { contains: q, mode: "insensitive" } }, { renk: { contains: q, mode: "insensitive" } }] } } }] } : {}),
+  };
+  const [markalar, kategoriler, urunler, toplam] = await Promise.all([
     prisma.marka.findMany({ orderBy: { ad: "asc" } }),
     prisma.kategori.findMany({ orderBy: { ad: "asc" } }),
     prisma.urun.findMany({
-      where: {
-        aktif: true,
-        ...(sp.marka ? { markaId: sp.marka } : {}),
-        ...(sp.kategori ? { kategoriId: sp.kategori } : {}),
-        ...(q ? { OR: [{ ad: { contains: q, mode: "insensitive" } }, { marka: { ad: { contains: q, mode: "insensitive" } } }, { varyantlar: { some: { OR: [{ barkod: { contains: q } }, { sku: { contains: q, mode: "insensitive" } }, { renk: { contains: q, mode: "insensitive" } }] } } }] } : {}),
-      },
+      where,
       include: { marka: true, kategori: true, varyantlar: { where: { aktif: true }, include: { stoklar: { where: kapsam ? { subeId: kapsam } : undefined } } } },
       orderBy: { createdAt: "desc" },
-      take: 600,
+      skip: (sayfa - 1) * SAYFA,
+      take: SAYFA,
     }),
+    prisma.urun.count({ where }),
   ]);
 
-  const satirlar = urunler.map((u) => {
+  const gorunen = urunler.map((u) => {
     const stok = u.varyantlar.reduce((t, v) => t + v.stoklar.reduce((a, s) => a + s.miktar, 0), 0);
     const dusuk = u.varyantlar.filter((v) => v.stoklar.reduce((a, s) => a + s.miktar, 0) <= v.minStok).length;
     const fiyatlar = u.varyantlar.map((v) => Number(v.satisFiyati));
     return { u, stok, dusuk, min: Math.min(...fiyatlar), max: Math.max(...fiyatlar) };
-  }).filter((s) => (sp.dusuk ? s.dusuk > 0 : true));
-
-  const toplamSayfa = Math.max(1, Math.ceil(satirlar.length / SAYFA));
-  const gorunen = satirlar.slice((sayfa - 1) * SAYFA, sayfa * SAYFA);
-  const link = (d: Record<string, string | undefined>) => {
+  });
+  const toplamSayfa = Math.max(1, Math.ceil(toplam / SAYFA));  const link = (d: Record<string, string | undefined>) => {
     const p = new URLSearchParams();
     for (const [k, v] of Object.entries({ q: q || undefined, marka: sp.marka, kategori: sp.kategori, dusuk: sp.dusuk, ...d })) if (v) p.set(k, v);
     return `/urunler${p.toString() ? `?${p}` : ""}`;
@@ -52,7 +60,7 @@ export default async function UrunlerSayfasi({ searchParams }: { searchParams: P
 
   return (
     <>
-      <Baslik baslik="Ürünler" aciklama={`${sayiFormat(satirlar.length)} ürün${kapsam ? "" : " · tüm şubelerin toplam stoğu"}`}
+      <Baslik baslik="Ürünler" aciklama={`${sayiFormat(toplam)} ürün${kapsam ? "" : " · tüm şubelerin toplam stoğu"}`}
         aksiyon={yonetici && <Link href="/urunler/yeni" className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-foreground px-4 text-sm font-medium text-background"><PackagePlus className="size-4" /> Ürün ekle</Link>} />
 
       <form className="mb-5 flex flex-wrap gap-2" action="/urunler">

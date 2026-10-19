@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { sayfaBaglami } from "@/lib/sayfa";
 import { DONEM_BASLIK, donemCoz, type DonemSP } from "@/lib/donemSecimi";
-import { raporVerisi } from "@/lib/raporSayfa";
+import { raporVerisiC } from "@/lib/raporSayfa";
 import { sifirlamaNoktasi } from "@/lib/sifirlama";
 import { paraFormat, sayiFormat } from "@/lib/para";
 import { tarihFormat } from "@/lib/tarih";
@@ -17,7 +17,7 @@ export default async function RaporYazdir({ searchParams }: { searchParams: Prom
   const d = donemCoz(sp);
   const sinir = await sifirlamaNoktasi();
   const [r, sube, dukkan] = await Promise.all([
-    raporVerisi(d.bas, d.bit, kapsam, sinir, kullanici.rol === "SUPER_ADMIN"),
+    raporVerisiC(d.bas.toISOString(), d.bit.toISOString(), kapsam ?? null, sinir ? sinir.toISOString() : null, kullanici.rol === "SUPER_ADMIN"),
     kapsam ? prisma.sube.findUnique({ where: { id: kapsam }, select: { ad: true } }) : null,
     prisma.ayar.findUnique({ where: { anahtar: "dukkanAdi" } }),
   ]);

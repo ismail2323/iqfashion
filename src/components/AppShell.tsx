@@ -92,12 +92,12 @@ export function AppShell({ kullanici, subeler, seciliSube, subeAdi, kritik, chil
         <header className="safe-t sticky top-0 z-30 flex items-center gap-3 border-b border-border bg-background/85 px-4 py-2.5 backdrop-blur lg:px-8">
           <div className="lg:hidden"><Logo className="h-9" /></div>
           <div className="ml-auto flex items-center gap-2">
-            {kullanici.rol === "SUPER_ADMIN" ? (
+            {kullanici.rol === "SUPER_ADMIN" && subeler.length > 1 ? (
               <label className="flex items-center gap-2">
                 <Store className="hidden size-4 text-muted sm:block" aria-hidden />
                 <span className="sr-only">Aktif şube</span>
-                <Secim value={seciliSube} onChange={(e) => subeDegistir(e.target.value)} className="min-h-10 w-44 py-0 sm:w-52" aria-label="Aktif şube">
-                  <option value="">Tüm şubeler</option>
+                <Secim value={seciliSube || "hepsi"} onChange={(e) => subeDegistir(e.target.value)} className="min-h-10 w-44 py-0 sm:w-52" aria-label="Aktif şube">
+                  <option value="hepsi">Tüm şubeler</option>
                   {subeler.map((s) => <option key={s.id} value={s.id}>{s.ad}</option>)}
                 </Secim>
               </label>

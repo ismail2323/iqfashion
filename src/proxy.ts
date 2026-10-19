@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 // Hizli on-kontrol: oturum cerezi yoksa giris sayfasina. Gercek dogrulama sunucuda (DB oturumu) yapilir.
-const ACIK = ["/giris", "/api/auth/giris", "/api/auth/kurulum", "/manifest.webmanifest", "/sw.js", "/logo", "/icon-"];
+const ACIK = ["/giris", "/api/auth/giris", "/api/auth/kurulum", "/api/saglik", "/manifest.webmanifest", "/sw.js", "/logo", "/icon-"];
 
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
 import { malKabul, satisIade, satisIptal, satisYap, urunOlustur } from "@/lib/stok";
-import { donemOzetleri, gunlukSeri, kirilim, kritikStoklar, ozet, stokDegeri, subeKarsilastirma } from "@/lib/rapor";
+import { donemOzetleri, donemOzetleriHizli, gunlukSeri, kirilim, kritikStoklar, ozet, stokDegeri, subeKarsilastirma } from "@/lib/rapor";
 import { fabrikaSifirla, istatistikGeriAl, istatistikSifirla, onayMetniDogru, ONAY_FABRIKA, sifirlamaNoktasi } from "@/lib/sifirlama";
 import { donemAraligi } from "@/lib/tarih";
 import { kur, temizle } from "./yardimci";
@@ -76,6 +76,28 @@ describe("özet tanımları", () => {
     const nokta = new Date(Date.now() + 1000);
     expect((await ozet(bas, bit, undefined, nokta)).satis).toBe(0);
     expect((await ozet(bas, bit)).satis).toBe(1000);
+  });
+});
+
+describe("tek geçişli dönem özeti", () => {
+  it("4 dönem için eski (ayrı sorgulu) hesapla birebir aynı sonucu verir; sıfırlama noktasıyla da", async () => {
+    // bugün, 3 gün önce, 20 gün önce, 200 gün önce satışlar + alış + gider + gelir
+    for (const gunOnce of [0, 0, 3, 20, 200]) {
+      const s = await satisYap({ subeId: t.a.id, odemeTipi: gunOnce % 2 ? "KART" : "NAKIT", kalemler: [{ varyantId: vid, adet: 1 }], indirim: gunOnce === 3 ? 50 : 0 }, t.mudur);
+      const tarih = new Date(Date.now() - gunOnce * 86_400_000);
+      await prisma.satis.update({ where: { id: s.id }, data: { createdAt: tarih } });
+    }
+    await prisma.alisBelgesi.updateMany({ data: { tarih: new Date(Date.now() - 2 * 86_400_000) } });
+    await prisma.kasaKaydi.create({ data: { tip: "GIDER", kategori: "Kira", tutar: "300.00", tarih: new Date(Date.now() - 1 * 86_400_000) } });
+    await prisma.kasaKaydi.create({ data: { tip: "GELIR", kategori: "Diğer", tutar: "120.50", tarih: new Date(Date.now() - 40 * 86_400_000) } });
+    const cikar = (x: Record<string, unknown>) => Object.fromEntries(Object.entries(x).map(([d, v]) => [d, { ...(v as object), bas: undefined, bit: undefined }]));
+    for (const sinir of [null, new Date(Date.now() - 10 * 86_400_000)]) {
+      const eski = await donemOzetleri(undefined, sinir);
+      const yeni = await donemOzetleriHizli(undefined, sinir);
+      expect(cikar(yeni)).toEqual(cikar(eski));
+      const subeli = await donemOzetleri(t.a.id, sinir);
+      expect(cikar(await donemOzetleriHizli(t.a.id, sinir))).toEqual(cikar(subeli));
+    }
   });
 });
 

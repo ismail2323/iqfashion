@@ -2,7 +2,8 @@ import { PrismaClient } from "@/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 function olustur(): PrismaClient {
-  const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+  // Neon (ücretsiz) boştayken uyur; uyanma birkaç saniye sürebilir -> bağlantı zaman aşımı geniş tutulur.
+  const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 25_000, idleTimeoutMillis: 20_000, max: 6 });
   return new PrismaClient({ adapter });
 }
 

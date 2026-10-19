@@ -2,13 +2,13 @@ import Link from "next/link";
 import { FileText } from "lucide-react";
 import { sayfaBaglami } from "@/lib/sayfa";
 import { donemCoz, type DonemSP } from "@/lib/donemSecimi";
-import { raporVerisi } from "@/lib/raporSayfa";
+import { raporVerisiC } from "@/lib/raporSayfa";
 import { sifirlamaNoktasi } from "@/lib/sifirlama";
 import { paraFormat, sayiFormat } from "@/lib/para";
 import type { KirilimSatiri } from "@/lib/rapor";
 import { Baslik, BosDurum, Kart, Rozet } from "@/components/ui";
 import { DonemSecici } from "@/components/DonemSecici";
-import { TrendGrafik } from "@/components/Grafikler";
+import { TrendGrafik } from "@/components/GrafiklerLazy";
 import { CsvIndir } from "./CsvIndir";
 
 export const metadata = { title: "Raporlar" };
@@ -17,7 +17,8 @@ export default async function RaporlarSayfasi({ searchParams }: { searchParams: 
   const { kullanici, kapsam } = await sayfaBaglami("SUPER_ADMIN", "SUBE_MUDURU");
   const sp = await searchParams;
   const d = donemCoz(sp);
-  const r = await raporVerisi(d.bas, d.bit, kapsam, await sifirlamaNoktasi(), kullanici.rol === "SUPER_ADMIN");
+  const sinir = await sifirlamaNoktasi();
+  const r = await raporVerisiC(d.bas.toISOString(), d.bit.toISOString(), kapsam ?? null, sinir ? sinir.toISOString() : null, kullanici.rol === "SUPER_ADMIN");
   const o = r.ozet;
   const yazdirUrl = `/raporlar/yazdir?donem=${d.donem}${d.donem === "ozel" ? `&bas=${sp.bas}&bit=${sp.bit}` : ""}`;
 

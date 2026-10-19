@@ -6,6 +6,7 @@ import { mevcutKullanici } from "./auth";
 import { cookies } from "next/headers";
 import { IsHatasi } from "./hatalar";
 import { gecerliSube } from "./subeSecimi";
+import { onbellekleriTazele, RAPOR, SUBELER } from "./onbellek";
 import { YetkiHatasi, islemSubesi, subeKapsami, type Oturumlu } from "./rbac";
 
 export const SUBE_COOKIE = "iq_sube";
@@ -95,6 +96,8 @@ export function handler<S extends ZodType | undefined = undefined>(
         params,
         req,
       });
+      // Veri değiştiren her başarılı istek panel/rapor ve şube önbelleğini düşürür (gösterge hep güncel kalır)
+      if (!["GET", "HEAD", "OPTIONS"].includes(req.method)) onbellekleriTazele(RAPOR, SUBELER);
       return sonuc instanceof Response ? sonuc : json(sonuc ?? { tamam: true });
     } catch (e) {
       return hataYaniti(e);

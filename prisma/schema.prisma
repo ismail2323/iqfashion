@@ -237,6 +237,7 @@ model StokHareketi {
   @@index([varyantId])
   @@index([belgeId])
   @@index([createdAt])
+  @@index([subeId, createdAt])
 }
 
 model Satis {
@@ -259,6 +260,8 @@ model Satis {
 
   @@index([subeId, createdAt])
   @@index([createdAt])
+  @@index([durum, createdAt])
+  @@index([subeId, durum, createdAt])
 }
 
 model SatisKalemi {
@@ -301,6 +304,7 @@ model AlisBelgesi {
   kalemler  AlisKalemi[]
 
   @@index([subeId, tarih])
+  @@index([tarih])
 }
 
 model AlisKalemi {

@@ -2,13 +2,13 @@ import Link from "next/link";
 import { AlertTriangle, ArrowDownRight, CheckCircle2, Circle, ArrowUpRight, Banknote, FileText, PackageOpen, RotateCcw, ShoppingCart, Store, TrendingUp, Wallet } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { sayfaBaglami } from "@/lib/sayfa";
-import { donemAraligi, gunBasi, gunEkle, tarihFormat, type Donem } from "@/lib/tarih";
+import { tarihFormat, type Donem } from "@/lib/tarih";
+import { panelVerisi } from "@/lib/panelVerisi";
 import { paraFormat, sayiFormat } from "@/lib/para";
-import { donemOzetleri, gunlukSeri, kirilim, kritikStoklar, oluStok, stokDegeri, subeKarsilastirma } from "@/lib/rapor";
 import { sifirlamaNoktasi } from "@/lib/sifirlama";
 import { Baslik, BosDurum, Kart, Rozet, StatKart } from "@/components/ui";
 import { cn } from "@/lib/cn";
-import { CubukGrafik, PastaGrafik, TrendGrafik } from "@/components/Grafikler";
+import { CubukGrafik, PastaGrafik, TrendGrafik } from "@/components/GrafiklerLazy";
 
 export const metadata = { title: "Panel" };
 
@@ -30,24 +30,11 @@ export default async function Panel({ searchParams }: { searchParams: Promise<{ 
   const sp = await searchParams;
   const gd = (GRAFIK_DONEMLERI.find((x) => x.anahtar === sp.d)?.anahtar ?? "ay") as Donem;
   const sinir = await sifirlamaNoktasi();
-  const { bas, bit } = donemAraligi(gd);
-  const otuzBas = gunEkle(gunBasi(), -29);
-
-  const [donemler, seri, markalar, urunler, renkler, bedenler, stok, kritik, olu, subeler, sonSatislar, subeAdi] = await Promise.all([
-    donemOzetleri(kapsam, sinir),
-    gunlukSeri(otuzBas, gunEkle(gunBasi(), 1), kapsam, sinir),
-    kirilim("marka", bas, bit, kapsam, 8, sinir),
-    kirilim("urun", bas, bit, kapsam, 6, sinir),
-    kirilim("renk", bas, bit, kapsam, 8, sinir),
-    kirilim("beden", bas, bit, kapsam, 8, sinir),
-    stokDegeri(kapsam),
-    kritikStoklar(kapsam, 8),
-    oluStok(45, kapsam, 6),
-    kullanici.rol === "SUPER_ADMIN" && !kapsam ? subeKarsilastirma(bas, bit, sinir) : Promise.resolve([]),
-    prisma.satis.findMany({ where: { ...(kapsam ? { subeId: kapsam } : {}), ...(sinir ? { createdAt: { gte: sinir } } : {}) }, orderBy: { createdAt: "desc" }, take: 7, include: { sube: { select: { ad: true } }, kalemler: { select: { miktar: true, urunAdi: true } } } }),
+  const [panel, subeAdi] = await Promise.all([
+    panelVerisi(kapsam ?? null, sinir ? sinir.toISOString() : null, gd, kullanici.rol === "SUPER_ADMIN"),
     kapsam ? prisma.sube.findUnique({ where: { id: kapsam }, select: { ad: true } }) : null,
   ]);
-
+  const { donemler, seri, markalar, urunler, renkler, bedenler, stok, kritik, olu, subeler, sonSatislar } = panel;
   const baslangicSayilari = kullanici.rol === "SUPER_ADMIN" ? await Promise.all([prisma.sube.count(), prisma.kullanici.count({ where: { rol: { not: "SUPER_ADMIN" } } }), prisma.urun.count(), prisma.satis.count()]) : null;
   const baslangicAdimlari = baslangicSayilari ? [
     { ad: "Şube oluşturun", ok: baslangicSayilari[0] > 0, link: "/subeler" },
@@ -55,14 +42,6 @@ export default async function Panel({ searchParams }: { searchParams: Promise<{ 
     { ad: "İlk ürünleri ekleyin (fotoğraftan AI)", ok: baslangicSayilari[2] > 0, link: "/urunler/yeni" },
     { ad: "İlk satışı yapın", ok: baslangicSayilari[3] > 0, link: "/satis" },
   ] : [];
-  const odeme = donemler.ay.odeme;
-  const odemeVeri = [
-    { ad: "Nakit", deger: odeme.NAKIT },
-    { ad: "Kart", deger: odeme.KART },
-    { ad: "Havale/EFT", deger: odeme.HAVALE },
-    { ad: "Karışık", deger: odeme.KARISIK },
-  ].filter((x) => x.deger > 0);
-
   return (
     <div className="space-y-6">
       <Baslik
@@ -165,10 +144,6 @@ export default async function Panel({ searchParams }: { searchParams: Promise<{ 
           <h3 className="mb-3 font-medium">Beden dağılımı (adet)</h3>
           <PastaGrafik veri={bedenler.map((x) => ({ ad: x.ad, deger: x.adet }))} birim="adet" />
         </Kart>
-        <Kart className="p-4 sm:p-5">
-          <h3 className="mb-3 font-medium">Ödeme yöntemleri (bu ay)</h3>
-          <PastaGrafik veri={odemeVeri} />
-        </Kart>
         {subeler.length > 0 && (
           <Kart className="p-4 sm:p-5">
             <h3 className="mb-3 flex items-center gap-2 font-medium"><Store className="size-4 text-muted" /> Şube karşılaştırma</h3>
@@ -218,8 +193,8 @@ export default async function Panel({ searchParams }: { searchParams: Promise<{ 
             <ul className="divide-y divide-border">
               {sonSatislar.map((s) => (
                 <li key={s.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
-                  <div className="min-w-0"><p className="truncate font-medium">{s.kalemler[0]?.urunAdi}{s.kalemler.length > 1 && ` +${s.kalemler.length - 1}`}</p><p className="truncate text-xs text-muted">{tarihFormat(s.createdAt, true)} · {s.sube.ad}</p></div>
-                  <div className="text-right"><p className="tabular font-medium">{paraFormat(s.toplam.toString())}</p>{s.durum === "IPTAL" && <Rozet ton="tehlike">İptal</Rozet>}</div>
+                  <div className="min-w-0"><p className="truncate font-medium">{s.ilkUrun}{s.kalemSayisi > 1 && ` +${s.kalemSayisi - 1}`}</p><p className="truncate text-xs text-muted">{tarihFormat(s.tarih, true)} · {s.subeAd}</p></div>
+                  <div className="text-right"><p className="tabular font-medium">{paraFormat(s.toplam)}</p>{s.durum === "IPTAL" && <Rozet ton="tehlike">İptal</Rozet>}</div>
                 </li>
               ))}
             </ul>

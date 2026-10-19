@@ -15,6 +15,10 @@ await c.query("CREATE DATABASE iqfashion_e2e");
 await c.end();
 execSync("npx prisma migrate deploy", { stdio: "pipe", env: { ...process.env, DATABASE_URL: E2E_DB, DIRECT_URL: E2E_DB } });
 
+// önceki çalıştırmadan kalan veri önbelleğini temizle (e2e hep taze başlasın)
+import { rmSync } from "node:fs"; // e2e-onbellek
+rmSync(".next/cache", { recursive: true, force: true });
+
 process.env.DATABASE_URL = E2E_DB;
 process.env.DIRECT_URL = E2E_DB;
 process.argv = [process.argv[0], "next", "start", "-p", "3200"];

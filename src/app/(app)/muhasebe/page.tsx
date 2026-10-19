@@ -1,13 +1,13 @@
 import { prisma } from "@/lib/db";
 import { sayfaBaglami } from "@/lib/sayfa";
 import { donemCoz, type DonemSP } from "@/lib/donemSecimi";
-import { ozet } from "@/lib/rapor";
+import { ozetC } from "@/lib/raporSayfa";
 import { sifirlamaNoktasi } from "@/lib/sifirlama";
 import { paraFormat } from "@/lib/para";
 import { tarihFormat } from "@/lib/tarih";
 import { Baslik, Kart, StatKart } from "@/components/ui";
 import { DonemSecici } from "@/components/DonemSecici";
-import { PastaGrafik } from "@/components/Grafikler";
+import { PastaGrafik } from "@/components/GrafiklerLazy";
 import { ArrowDownRight, ArrowUpRight, Banknote, Landmark, PackageOpen, ShoppingCart, TrendingUp, Wallet } from "lucide-react";
 import { KasaIstemci } from "./KasaIstemci";
 
@@ -21,7 +21,7 @@ export default async function MuhasebeSayfasi({ searchParams }: { searchParams: 
   const bas = sinir && sinir > d.bas ? sinir : d.bas;
 
   const [o, kayitlar, tedarikciAlis] = await Promise.all([
-    ozet(d.bas, d.bit, kapsam, sinir),
+    ozetC(d.bas.toISOString(), d.bit.toISOString(), kapsam ?? null, sinir ? sinir.toISOString() : null),
     prisma.kasaKaydi.findMany({ where: { tarih: { gte: bas, lt: d.bit }, ...(kapsam ? { subeId: kapsam } : {}) }, orderBy: { tarih: "desc" }, take: 200 }),
     prisma.alisBelgesi.groupBy({ by: ["tedarikciId"], where: { tarih: { gte: bas, lt: d.bit }, ...(kapsam ? { subeId: kapsam } : {}) }, _sum: { toplam: true } }),
   ]);
