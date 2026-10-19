@@ -102,7 +102,7 @@ export function AyarlarIstemci({ superAdmin, dukkanAdi, sifirlamaNoktasi, ai }: 
               <div className="flex flex-wrap items-start justify-between gap-3 pt-5">
                 <div className="max-w-xl">
                   <h3 className="font-medium">Tüm verileri sil — fabrika ayarlarına dön</h3>
-                  <p className="mt-1 text-sm text-muted">Ürünler, stoklar, satışlar, alışlar, transferler, giderler, şubeler ve <b>diğer tüm kullanıcılar</b> kalıcı olarak silinir. Yalnızca sizin hesabınız kalır. <b>Geri alınamaz.</b></p>
+                  <p className="mt-1 text-sm text-muted">Ürünler, stoklar, satışlar, alışlar, transferler ve giderler kalıcı olarak silinir; <b>Merkez (ana) şube sıfırlanıp kalır</b>, diğer şubeler ve <b>diğer tüm kullanıcılar</b> silinir. Yalnızca sizin hesabınız kalır. <b>Geri alınamaz.</b></p>
                 </div>
                 <Buton varyant="tehlike" onClick={() => setFabrika(true)}><Trash2 className="size-4" /> Fabrika ayarlarına dön</Buton>
               </div>
@@ -115,7 +115,7 @@ export function AyarlarIstemci({ superAdmin, dukkanAdi, sifirlamaNoktasi, ai }: 
             butonMetni="İstatistikleri sıfırla" bitti={() => { bildir("İstatistikler sıfırlandı"); router.refresh(); }} />
           <CokAdimliOnay acik={fabrika} kapat={() => setFabrika(false)} baslik="Fabrika ayarlarına dön" uc="/api/ayarlar/fabrika-sifirla" onayMetni={ONAY_FABRIKA}
             anladimMetni="Tüm verilerin KALICI olarak silineceğini, bunun geri alınamayacağını ve yedeği indirmediysem verilerimi kaybedeceğimi anlıyorum."
-            bilgi={<><p><b>Silinecekler:</b> tüm ürünler ve görselleri, stoklar, satışlar, alışlar, transferler, gelir/giderler, hareket ve denetim geçmişi, tüm şubeler ve diğer tüm kullanıcılar.</p><p><b>Kalacaklar:</b> yalnızca sizin süper admin hesabınız ve varsayılan marka/tür listeleri.</p><p>Devam etmeden önce Ayarlar’daki <b>Yedeği indir</b> ile verilerinizin kopyasını alın.</p></>}
+            bilgi={<><p><b>Silinecekler:</b> tüm ürünler ve görselleri, stoklar, satışlar, alışlar, transferler, gelir/giderler, hareket ve denetim geçmişi, Merkez dışındaki tüm şubeler ve diğer tüm kullanıcılar.</p><p><b>Kalacaklar:</b> sizin süper admin hesabınız, <b>Merkez şube</b> (verileri sıfırlanmış olarak) ve varsayılan marka/tür listeleri.</p><p>Devam etmeden önce Ayarlar’daki <b>Yedeği indir</b> ile verilerinizin kopyasını alın.</p></>}
             butonMetni="Her şeyi kalıcı olarak sil" bitti={() => { bildir("Sistem fabrika ayarlarına döndürüldü"); window.location.href = "/"; }} />
           <OnayModal acik={geriAl} kapat={() => setGeriAl(false)} baslik="Sıfırlamayı geri al" onayMetni="Geri al" mesaj="İstatistikler yeniden tüm geçmiş kayıtları sayacak."
             calistir={async () => { try { await api("/api/ayarlar/geri-al", { method: "POST", govde: {} }); bildir("Sıfırlama geri alındı"); router.refresh(); } catch (e) { bildir((e as Error).message, "hata"); throw e; } }} />

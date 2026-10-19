@@ -9,7 +9,7 @@ import { useToast } from "@/components/Toast";
 import { api } from "@/lib/istemci";
 import { paraFormat, sayiFormat } from "@/lib/para";
 
-type Sube = { id: string; ad: string; kod: string; adres: string | null; telefon: string | null; aktif: boolean; kullaniciSayisi: number; stokAdedi: number; bugunSatis: number; bugunSatisSayisi: number };
+type Sube = { ana: boolean; id: string; ad: string; kod: string; adres: string | null; telefon: string | null; aktif: boolean; kullaniciSayisi: number; stokAdedi: number; bugunSatis: number; bugunSatisSayisi: number };
 type Hesap = { ad: string; email: string; sifre: string };
 
 export function SubelerIstemci() {
@@ -58,7 +58,7 @@ export function SubelerIstemci() {
                   <h2 className="truncate font-display text-xl font-semibold">{s.ad}</h2>
                   <p className="text-xs text-muted">Kod: <b className="tabular">{s.kod}</b></p>
                 </div>
-                <Rozet ton={s.aktif ? "ok" : "nötr"}>{s.aktif ? "Aktif" : "Pasif"}</Rozet>
+                <span className="flex shrink-0 gap-1.5">{s.ana && <Rozet ton="vurgu">Ana şube</Rozet>}<Rozet ton={s.aktif ? "ok" : "nötr"}>{s.aktif ? "Aktif" : "Pasif"}</Rozet></span>
               </div>
               <div className="mt-3 space-y-1 text-sm text-muted">
                 {s.adres && <p className="flex items-center gap-2"><MapPin className="size-3.5 shrink-0" /> {s.adres}</p>}
@@ -78,8 +78,8 @@ export function SubelerIstemci() {
               <div className="mt-auto flex flex-wrap gap-2 pt-4">
                 {s.aktif && <Buton kucuk onClick={() => panelineGec(s)}><ExternalLink className="size-4" /> Paneline geç</Buton>}
                 <Buton kucuk varyant="ikincil" onClick={() => setDuzenle(s)}><Pencil className="size-4" /> Düzenle</Buton>
-                <Buton kucuk varyant="hayalet" onClick={() => (s.aktif ? setPasifle(s) : void durumDegistir(s, true))} aria-label={s.aktif ? "Pasife al" : "Aktif et"}><Power className="size-4" /> {s.aktif ? "Pasife al" : "Aktif et"}</Buton>
-                <Buton kucuk varyant="hayalet" className="text-danger" onClick={() => setSilinecek(s)} aria-label="Sil"><Trash2 className="size-4" /></Buton>
+                {!s.ana && <Buton kucuk varyant="hayalet" onClick={() => (s.aktif ? setPasifle(s) : void durumDegistir(s, true))} aria-label={s.aktif ? "Pasife al" : "Aktif et"}><Power className="size-4" /> {s.aktif ? "Pasife al" : "Aktif et"}</Buton>}
+                {!s.ana && <Buton kucuk varyant="hayalet" className="text-danger" onClick={() => setSilinecek(s)} aria-label="Sil"><Trash2 className="size-4" /></Buton>}
               </div>
             </Kart>
           ))}

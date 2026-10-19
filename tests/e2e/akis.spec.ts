@@ -110,7 +110,9 @@ test("2. Güvenlik: CSRF, yetkisiz erişim ve giriş hız sınırı", async () =
 
 test("3. Şube + müdür hesabı aç, şifre bir kez gösterilir, ilk girişte değiştirilir", async () => {
   await admin.goto("/subeler");
-  await expect(admin.getByText("Henüz şube yok")).toBeVisible();
+  // İlk kurulumda ana (Merkez) şube kendiliğinden vardır
+  await expect(admin.getByRole("heading", { name: "Merkez" })).toBeVisible();
+  await expect(admin.getByText("Ana şube")).toBeVisible();
   await admin.getByRole("button", { name: /Yeni şube|İlk şubeyi oluştur/ }).first().click();
   await admin.getByLabel("Şube adı").fill("Kadıköy Şubesi");
   await admin.getByLabel("Müdür adı soyadı").fill("Murat Yıldız");
@@ -469,6 +471,11 @@ test("15. İstatistik sıfırlama: 3 adım, yanlış şifre reddedilir, geri al�
 });
 
 test("16. Fabrika ayarlarına dön: 3 onay + şifre; her şey silinir, yalnız admin kalır", async () => {
+  // Ana (Merkez) şube hiçbir şekilde silinemez/pasife alınamaz
+  const liste = (await (await admin.request.get("/api/subeler")).json()).subeler as { id: string; ana: boolean }[];
+  const ana = liste.find((s) => s.ana)!;
+  expect((await admin.request.delete(`/api/subeler/${ana.id}`, { headers: { origin: ORIGIN } })).status()).toBe(409);
+  expect((await admin.request.patch(`/api/subeler/${ana.id}`, { data: { aktif: false }, headers: { origin: ORIGIN } })).status()).toBe(409);
   // Sunucu tarafı: arayüz atlanarak çağrılsa da onay metni + şifre zorunlu
   const atla = await admin.request.post("/api/ayarlar/fabrika-sifirla", { data: { anladim: true, onay: "yanlış", sifre: ADMIN.sifre }, headers: { origin: ORIGIN } });
   expect(atla.status()).toBe(400);
@@ -496,7 +503,9 @@ test("16. Fabrika ayarlarına dön: 3 onay + şifre; her şey silinir, yalnız a
   // Sistem boşaldı ama admin oturumu açık
   await expect(admin.getByRole("heading", { name: /Merhaba, Yavuz/ })).toBeVisible();
   await admin.goto("/subeler");
-  await expect(admin.getByText("Henüz şube yok")).toBeVisible();
+  await expect(admin.getByRole("heading", { name: "Merkez" })).toBeVisible(); // ana şube kalır
+  await expect(admin.getByRole("heading", { name: "Kadıköy Şubesi" })).toHaveCount(0);
+  await expect(admin.getByRole("heading", { name: "Beşiktaş Şubesi" })).toHaveCount(0);
   await admin.goto("/urunler");
   await expect(admin.getByText("Ürün bulunamadı")).toBeVisible();
   await admin.goto("/kullanicilar");

@@ -151,7 +151,10 @@ describe("sıfırlama", () => {
     expect(await prisma.urun.count()).toBe(0);
     expect(await prisma.stok.count()).toBe(0);
     expect(await prisma.stokHareketi.count()).toBe(0);
-    expect(await prisma.sube.count()).toBe(0);
+    // Ana (en eski) şube Merkez kalır ve sayacı sıfırlanır; diğer şubeler silinir
+    const subeler = await prisma.sube.findMany();
+    expect(subeler.map((s) => s.id)).toEqual([t.a.id]);
+    expect(subeler[0].satisSayac).toBe(0);
     expect(await prisma.kasaKaydi.count()).toBe(0);
     const kullanicilar = await prisma.kullanici.findMany();
     expect(kullanicilar.map((k) => k.id)).toEqual([t.admin.id]);

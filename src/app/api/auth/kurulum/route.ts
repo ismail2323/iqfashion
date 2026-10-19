@@ -22,6 +22,7 @@ export const POST = handler({ acik: true, sema }, async ({ govde }) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(7101)`;
     if ((await tx.kullanici.count()) > 0) throw new IsHatasi("Kurulum zaten tamamlanmış", 409);
     await varsayilanlariYaz(tx);
+    if ((await tx.sube.count()) === 0) await tx.sube.create({ data: { ad: "Merkez", kod: "MERKEZ" } }); // ana şube hep var
     return tx.kullanici.create({
       data: { ad: govde.ad, email: govde.email, sifreHash: await sifreHashle(govde.sifre), rol: "SUPER_ADMIN" },
     });

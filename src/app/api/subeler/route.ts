@@ -15,9 +15,10 @@ export const GET = handler({ roller: ["SUPER_ADMIN"] }, async () => {
     prisma.stok.groupBy({ by: ["subeId"], _sum: { miktar: true } }),
     prisma.satis.groupBy({ by: ["subeId"], where: { durum: "TAMAMLANDI", createdAt: { gte: bas, lt: gunEkle(bas, 1) } }, _sum: { toplam: true }, _count: true }),
   ]);
+  const ana = subeler.reduce((en, s) => (!en || s.createdAt < en.createdAt ? s : en), null as (typeof subeler)[number] | null)?.id;
   return {
     subeler: subeler.map((s) => ({
-      id: s.id, ad: s.ad, kod: s.kod, adres: s.adres, telefon: s.telefon, aktif: s.aktif, kullaniciSayisi: s._count.kullanicilar,
+      ana: s.id === ana, id: s.id, ad: s.ad, kod: s.kod, adres: s.adres, telefon: s.telefon, aktif: s.aktif, kullaniciSayisi: s._count.kullanicilar,
       stokAdedi: stoklar.find((x) => x.subeId === s.id)?._sum.miktar ?? 0,
       bugunSatis: Number(satislar.find((x) => x.subeId === s.id)?._sum.toplam ?? 0),
       bugunSatisSayisi: satislar.find((x) => x.subeId === s.id)?._count ?? 0,

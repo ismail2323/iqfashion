@@ -25,19 +25,29 @@ export async function istatistikGeriAl() {
   await prisma.ayar.deleteMany({ where: { anahtar: SIFIRLAMA_ANAHTARI } });
 }
 
-/** Geri donulemez. Islemi yapan super admin hesabi ve oturumu korunur. */
+/**
+ * Geri dönülemez. Tüm veri silinir; yalnızca şunlar kalır:
+ *  - işlemi yapan süper admin hesabı ve oturumu,
+ *  - ANA ŞUBE (en eski şube, "Merkez"): kendisi korunur, fiş sayacı sıfırlanır. Diğer şubeler ve tüm diğer kullanıcılar silinir.
+ */
 export async function fabrikaSifirla(adminId: string) {
   const admin = await prisma.kullanici.findUnique({ where: { id: adminId } });
   if (!admin || admin.rol !== "SUPER_ADMIN") throw new IsHatasi("Yalnızca süper admin fabrika ayarlarına dönebilir", 403);
   await prisma.$transaction(
     async (tx) => {
-      // Sube/Kullanici/Oturum haric tum veri tablolari TRUNCATE; Sube, Kullanici'ya bagli oldugu icin ayrica silinir.
+      const ana = await tx.sube.findFirst({ orderBy: { createdAt: "asc" }, select: { id: true } });
+      // Sube/Kullanici/Oturum haric tum veri tablolari TRUNCATE; Sube, Kullanici'ya bagli oldugu icin ayrica islenir.
       await tx.$executeRawUnsafe(
         `TRUNCATE "SatisKalemi","Satis","AlisKalemi","AlisBelgesi","TransferKalemi","Transfer","StokHareketi","Stok","FiyatGecmisi","Varyant","Urun","Marka","Kategori","Tedarikci","KasaKaydi","DenetimKaydi","AiKullanim","Gorsel","GirisDenemesi","Ayar","Sayac" RESTART IDENTITY`,
       );
       await tx.kullanici.deleteMany({ where: { id: { not: adminId } } });
       await tx.kullanici.update({ where: { id: adminId }, data: { subeId: null } });
-      await tx.sube.deleteMany({});
+      if (ana) {
+        await tx.sube.deleteMany({ where: { id: { not: ana.id } } });
+        await tx.sube.update({ where: { id: ana.id }, data: { satisSayac: 0, aktif: true } });
+      } else {
+        await tx.sube.create({ data: { ad: "Merkez", kod: "MERKEZ" } });
+      }
       await varsayilanlariYaz(tx);
     },
     { timeout: 120_000 },

@@ -37,7 +37,6 @@ export default async function Panel({ searchParams }: { searchParams: Promise<{ 
   const { donemler, seri, markalar, urunler, renkler, bedenler, stok, kritik, olu, subeler, sonSatislar } = panel;
   const baslangicSayilari = kullanici.rol === "SUPER_ADMIN" ? await Promise.all([prisma.sube.count(), prisma.kullanici.count({ where: { rol: { not: "SUPER_ADMIN" } } }), prisma.urun.count(), prisma.satis.count()]) : null;
   const baslangicAdimlari = baslangicSayilari ? [
-    { ad: "Şube oluşturun", ok: baslangicSayilari[0] > 0, link: "/subeler" },
     { ad: "Müdür / kasiyer hesabı açın", ok: baslangicSayilari[1] > 0, link: "/kullanicilar" },
     { ad: "İlk ürünleri ekleyin (fotoğraftan AI)", ok: baslangicSayilari[2] > 0, link: "/urunler/yeni" },
     { ad: "İlk satışı yapın", ok: baslangicSayilari[3] > 0, link: "/satis" },
@@ -62,7 +61,7 @@ export default async function Panel({ searchParams }: { searchParams: Promise<{ 
         <Kart className="border-accent/40 bg-accent-soft p-5">
           <h2 className="font-display text-lg font-semibold">Başlangıç adımları</h2>
           <p className="mb-3 text-sm text-muted">Sistemi kullanmaya başlamak için sırayla tamamlayın. Takıldığınızda <Link href="/yardim" className="font-medium underline">Yardım</Link> sayfasına bakın.</p>
-          <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <ol className="grid gap-2 sm:grid-cols-3">
             {baslangicAdimlari.map((a, i) => (
               <li key={a.ad}><Link href={a.link} className={cn("flex min-h-12 items-center gap-3 rounded-xl bg-surface px-3 py-2 text-sm transition hover:shadow-md", a.ok && "opacity-60")}>{a.ok ? <CheckCircle2 className="size-5 shrink-0 text-ok" /> : <Circle className="size-5 shrink-0 text-muted" />}<span><b className="mr-1">{i + 1}.</b>{a.ad}</span></Link></li>
             ))}

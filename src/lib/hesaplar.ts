@@ -4,6 +4,11 @@ import { IsHatasi } from "./hatalar";
 import { rastgeleSifre, sifreHashle, sifreKurali } from "./sifre";
 import type { Rol } from "@/generated/prisma/client";
 
+/** Ana şube = en eski şube (Merkez). Silinemez ve pasife alınamaz. */
+export async function anaSubeId(): Promise<string | null> {
+  return (await prisma.sube.findFirst({ orderBy: { createdAt: "asc" }, select: { id: true } }))?.id ?? null;
+}
+
 export type HesapBilgisi = { email: string; ad: string; sifre: string };
 
 /** "Merkez Mağaza" -> "MERKEZ", benzersiz değilse sayı eklenir */
@@ -93,6 +98,7 @@ export async function sifreSifirla(id: string): Promise<HesapBilgisi> {
 export async function subeGuncelle(id: string, g: { ad?: string; adres?: string | null; telefon?: string | null; aktif?: boolean }) {
   const s = await prisma.sube.findUnique({ where: { id } });
   if (!s) throw new IsHatasi("Şube bulunamadı", 404);
+  if (g.aktif === false && id === (await anaSubeId())) throw new IsHatasi("Ana (Merkez) şube pasife alınamaz", 409);
   if (g.aktif === false && s.aktif) {
     const aktifSayisi = await prisma.sube.count({ where: { aktif: true, id: { not: id } } });
     if (aktifSayisi === 0) throw new IsHatasi("En az bir aktif şube kalmalı", 409);
@@ -104,6 +110,7 @@ export async function subeGuncelle(id: string, g: { ad?: string; adres?: string 
 
 /** Hareketi/stoğu olan şube silinemez, pasife alınmalı. */
 export async function subeSil(id: string) {
+  if (id === (await anaSubeId())) throw new IsHatasi("Ana (Merkez) şube silinemez", 409);
   const [h, st, sat, k] = await Promise.all([
     prisma.stokHareketi.count({ where: { subeId: id } }),
     prisma.stok.count({ where: { subeId: id, miktar: { gt: 0 } } }),
