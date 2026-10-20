@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, ArrowDownRight, CheckCircle2, Circle, ArrowUpRight, Banknote, FileText, PackageOpen, RotateCcw, ShoppingCart, Store, TrendingUp, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowDownRight, ArrowUpRight, Banknote, FileText, PackageOpen, RotateCcw, ShoppingCart, Store, TrendingUp, Wallet } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { sayfaBaglami } from "@/lib/sayfa";
 import { tarihFormat, type Donem } from "@/lib/tarih";
@@ -35,12 +35,6 @@ export default async function Panel({ searchParams }: { searchParams: Promise<{ 
     kapsam ? prisma.sube.findUnique({ where: { id: kapsam }, select: { ad: true } }) : null,
   ]);
   const { donemler, seri, markalar, urunler, renkler, bedenler, stok, kritik, olu, subeler, sonSatislar } = panel;
-  const baslangicSayilari = kullanici.rol === "SUPER_ADMIN" ? await Promise.all([prisma.sube.count(), prisma.kullanici.count({ where: { rol: { not: "SUPER_ADMIN" } } }), prisma.urun.count(), prisma.satis.count()]) : null;
-  const baslangicAdimlari = baslangicSayilari ? [
-    { ad: "Müdür / kasiyer hesabı açın", ok: baslangicSayilari[1] > 0, link: "/kullanicilar" },
-    { ad: "İlk ürünleri ekleyin (fotoğraftan AI)", ok: baslangicSayilari[2] > 0, link: "/urunler/yeni" },
-    { ad: "İlk satışı yapın", ok: baslangicSayilari[3] > 0, link: "/satis" },
-  ] : [];
   return (
     <div className="space-y-6">
       <Baslik
@@ -56,18 +50,6 @@ export default async function Panel({ searchParams }: { searchParams: Promise<{ 
           </>
         }
       />
-
-      {baslangicAdimlari.some((a) => !a.ok) && (
-        <Kart className="border-accent/40 bg-accent-soft p-5">
-          <h2 className="font-display text-lg font-semibold">Başlangıç adımları</h2>
-          <p className="mb-3 text-sm text-muted">Sistemi kullanmaya başlamak için sırayla tamamlayın. Takıldığınızda <Link href="/yardim" className="font-medium underline">Yardım</Link> sayfasına bakın.</p>
-          <ol className="grid gap-2 sm:grid-cols-3">
-            {baslangicAdimlari.map((a, i) => (
-              <li key={a.ad}><Link href={a.link} className={cn("flex min-h-12 items-center gap-3 rounded-xl bg-surface px-3 py-2 text-sm transition hover:shadow-md", a.ok && "opacity-60")}>{a.ok ? <CheckCircle2 className="size-5 shrink-0 text-ok" /> : <Circle className="size-5 shrink-0 text-muted" />}<span><b className="mr-1">{i + 1}.</b>{a.ad}</span></Link></li>
-            ))}
-          </ol>
-        </Kart>
-      )}
 
       {sinir && (
         <Kart className="flex flex-wrap items-center gap-3 border-warn/40 bg-warn-soft px-4 py-3 text-sm text-warn">

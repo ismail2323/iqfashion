@@ -153,7 +153,7 @@ test("Telefondan toplu ürün girişi: etiketler tek tek çekilir; aynı barkod 
   await p.getByRole("button", { name: /Hepsini kaydet \(6\)/ }).click();
   await expect(p.getByText(/satır kaydedildi/).first()).toBeVisible({ timeout: 30000 });
   await expect(p.getByText(/0 satır kaydedildi|satırda hata var/)).toHaveCount(0);
-  await expect(p.getByText(/ayrı varyant/).first()).toBeVisible(); // renk/beden farklı + aynı barkod: veri birleşmedi
+  await expect(p.getByText(/sistem barkodu verildi/).first()).toBeVisible(); // renk/beden farklı + aynı barkod: veri birleşmedi
 
   // Gerçek durum (API): lacivert mont ayrı varyant olarak VAR, siyah montun stoğuna karışmadı
   const a = cihazlar.pc.page;
@@ -355,7 +355,7 @@ test("Sayım (telefon): barkodlar tek tek yazılıp okutulur; stok sayılan aded
   const gomlek = (await (await t.request.get(`/api/barkod/${BARKOD_GOMLEK_L}`)).json()).varyant;
   expect(gomlek.stok).toBe(3); // 10 → sayılan 3
   await t.goto("/hareketler?sekme=hareket&tip=SAYIM");
-  await expect(t.getByText(/Sayım/).first()).toBeVisible();
+  await expect(t.getByRole("cell", { name: "Sayım", exact: true }).first()).toBeVisible();
 });
 
 test("Haftalık rapor ve PDF; marka/renk kırılımları; etiket yazdırma", async () => {

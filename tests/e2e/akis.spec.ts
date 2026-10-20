@@ -77,7 +77,7 @@ test("1. İlk kurulum: boş sistemde süper admin oluşur ve panele girer", asyn
   await admin.getByLabel("Şifre (tekrar)").fill(ADMIN.sifre);
   await admin.getByRole("button", { name: "Hesabı oluştur" }).click();
   await expect(admin.getByRole("heading", { name: /Merhaba, Yavuz/ })).toBeVisible();
-  await expect(admin.getByText("Başlangıç adımları")).toBeVisible(); // süper admin için yönlendirme
+  await expect(admin.getByText("Başlangıç adımları")).toHaveCount(0); // uyarı kartı kaldırıldı
   // Kurulum ikinci kez çalışmaz
   const r = await admin.request.post("/api/auth/kurulum", { data: { ad: "Saldırgan", email: "x@x.com", sifre: "Saldirgan123" }, headers: { origin: ORIGIN } });
   expect(r.status()).toBe(409);
