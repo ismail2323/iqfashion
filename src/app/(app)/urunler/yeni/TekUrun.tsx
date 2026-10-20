@@ -8,8 +8,9 @@ import { useToast } from "@/components/Toast";
 import type { KatalogVeri } from "@/components/Katalog";
 import { api } from "@/lib/istemci";
 import { aiGorseliHazirla } from "@/lib/resim";
+import { barkodIyilestir, yerelBarkodOku } from "@/lib/etiketBarkod";
 import { gorselYukle, dosyadanUrunGorseli } from "@/lib/yukle";
-import { BEDEN_SETLERI, HIZLI_RENKLER, bedenSirasi, normalBeden, normalRenk, renkHex } from "@/lib/giyim";
+import { BEDEN_GRUPLARI, BEDEN_SETLERI, HIZLI_RENKLER, bedenSirasi, normalBeden, normalRenk, renkHex } from "@/lib/giyim";
 
 type Etiket = { marka: string | null; urunAdi: string | null; kategori: string | null; renk: string | null; beden: string | null; barkod: string | null; fiyat: number | null; cinsiyet: string | null; sezon: string | null; uyarilar: string[] };
 const sayi = (s: string) => Number(s.replace(",", "."));
@@ -91,7 +92,9 @@ export function TekUrun({ aiHazir, katalog }: { aiHazir: boolean; katalog: Katal
     setUyarilar([]);
     try {
       const k = await aiGorseliHazirla(f);
-      const { sonuc: s } = await api<{ sonuc: Etiket }>("/api/ai/etiket", { govde: { gorsel: k.dataUrl } });
+      const yerel = yerelBarkodOku(f, k.blob);
+      const { sonuc: ham } = await api<{ sonuc: Etiket }>("/api/ai/etiket", { govde: { gorsel: k.dataUrl } });
+      const s = await barkodIyilestir(ham, f, await yerel);
       if (s.marka) setMarka(s.marka);
       if (s.urunAdi) setAd(s.urunAdi);
       if (s.kategori) setKategori(s.kategori);
@@ -221,6 +224,13 @@ export function TekUrun({ aiHazir, katalog }: { aiHazir: boolean; katalog: Katal
         </div>
 
         <p className="mb-2 mt-5 text-sm font-medium">Bedenler</p>
+        <div className="mb-2 flex flex-wrap gap-2">
+          {(Object.keys(BEDEN_GRUPLARI) as (keyof typeof BEDEN_GRUPLARI)[]).map((g) => {
+            const set = BEDEN_GRUPLARI[g].bedenler;
+            const secili = bedenler.length === set.length && set.every((b) => bedenler.includes(b));
+            return <Buton key={g} kucuk varyant={secili ? "birincil" : "ikincil"} aria-pressed={secili} onClick={() => setBedenler([...set])}>{BEDEN_GRUPLARI[g].ad}</Buton>;
+          })}
+        </div>
         <div className="mb-2 flex flex-wrap gap-2">
           {Object.entries(BEDEN_SETLERI).map(([ad2, set]) => (
             <Buton key={ad2} kucuk varyant="ikincil" onClick={() => setBedenler([...set])}>{ad2}</Buton>

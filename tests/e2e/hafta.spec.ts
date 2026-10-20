@@ -408,3 +408,83 @@ test("Hafta sonu: üç cihaz da hâlâ açık; bir cihazdan çıkış diğerleri
   expect((await cihazlar.mudur.page.request.get("/api/auth/ben")).status()).toBe(200);
   expect((await cihazlar.kasiyer.page.request.get("/api/auth/ben")).status()).toBe(200);
 });
+
+test("Beden grupları (toplu AI): üst grup S–3XL ve alt grup 30–42 kutularına adet yazılır; etikette olmayan barkod AI ikinci okumayla tamamlanır", async () => {
+  const p = cihazlar.telefon.page;
+  const B_KAZAK = ean("869000000010");
+  const B_PANTOLON = ean("869000000011");
+  const B_TISORT = ean("869000000012");
+  await aiSirasi(p, [
+    { marka: "Zara", urunAdi: "Kapüşonlu Kazak", kategori: "Kazak", renk: "Gri", beden: "XL", barkod: B_KAZAK, barkodGecerli: true, fiyat: 1200 },
+    { marka: "Zara", urunAdi: "Chino Pantolon", kategori: "Pantolon", renk: "Bej", beden: "32", barkod: B_PANTOLON, barkodGecerli: true, fiyat: 900 },
+    { marka: "Zara", urunAdi: "Basic Tişört", kategori: "Tişört", renk: "Beyaz", beden: "M", barkod: null, fiyat: 800 }, // ilk okumada barkod çıkmadı
+  ]);
+  let barkodCagrisi = 0;
+  await p.route("**/api/ai/barkod", (route) => { barkodCagrisi++; return route.fulfill({ json: { sonuc: { barkod: B_TISORT, gecerli: true } } }); });
+  await p.goto("/urunler/yeni");
+  const dosya = p.locator('input[type="file"][multiple]');
+  for (let i = 1; i <= 3; i++) {
+    await dosya.setInputFiles({ name: `grup${i}.png`, mimeType: "image/png", buffer: PNG });
+    await expect(p.getByText(/AI okudu/)).toHaveCount(i, { timeout: 30000 });
+  }
+  expect(barkodCagrisi).toBe(1); // yalnızca barkodu eksik kalan fotoğraf için odaklı ikinci okuma
+  await expect(p.getByLabel("Barkod", { exact: true }).nth(2)).toHaveValue(B_TISORT);
+  await yaz(p.getByLabel("Alış fiyatı (₺)"), "500"); // 3 satırda "Ortak değerler" kendiliğinden açık
+  await p.getByRole("button", { name: "Boş alanlara uygula" }).click();
+  // Satır 1: üst grup; satır 2: alt grup; satır 3: tek beden (varsayılan)
+  const gruplar = p.getByRole("group", { name: "Beden girişi" }); // 0: ortak, 1-3: satırlar
+  await gruplar.nth(1).getByRole("button", { name: /Üst grup/ }).click();
+  await expect(p.getByLabel("S adet", { exact: true })).toBeVisible();
+  await yaz(p.getByLabel("XL adet", { exact: true }), "5");
+  await p.getByLabel("3XL adet", { exact: true }).fill("3");
+  await p.getByLabel("M adet", { exact: true }).first().fill("3");
+  await gruplar.nth(2).getByRole("button", { name: /Alt grup/ }).click();
+  await expect(p.getByLabel(/^(30|31|32|33|34|36|38|40|42) adet$/)).toHaveCount(9);
+  await p.getByLabel("32 adet", { exact: true }).fill("4");
+  await p.getByLabel("34 adet", { exact: true }).fill("2");
+  await p.getByLabel("36 adet", { exact: true }).fill("1");
+  await expect(p.getByText(/Toplam 11 adet/)).toBeVisible();
+  await expect(p.getByText(/3 satır kayda hazır/)).toBeVisible();
+  await p.getByRole("button", { name: /Hepsini kaydet \(3\)/ }).click();
+  await expect(p.getByText(/3 beden, 11 adet kaydedildi/)).toBeVisible({ timeout: 30000 });
+  await expect(p.getByText(/3 beden, 7 adet kaydedildi/)).toBeVisible();
+  await expect(p.getByText(/satırda hata var/)).toHaveCount(0);
+
+  const a = cihazlar.pc.page;
+  const ara = async (q: string) => (await (await a.request.get(`/api/pos/ara?q=${encodeURIComponent(q)}`)).json()).sonuclar as { renk: string; beden: string; barkod: string; stok: number }[];
+  const kazak = await ara("Kapüşonlu Kazak");
+  expect(kazak.map((v) => `${v.beden}:${v.stok}`).sort()).toEqual(["3XL:3", "M:3", "XL:5"]);
+  expect(kazak.find((v) => v.beden === "XL")!.barkod).toBe(B_KAZAK); // etiketteki barkod okunan bedende
+  for (const v of kazak.filter((x) => x.beden !== "XL")) expect(v.barkod).toMatch(/^20\d{11}$/);
+  const pantolon = await ara("Chino Pantolon");
+  expect(pantolon.map((v) => `${v.beden}:${v.stok}`).sort()).toEqual(["32:4", "34:2", "36:1"]);
+  expect(pantolon.find((v) => v.beden === "32")!.barkod).toBe(B_PANTOLON);
+  const tisort = await ara("Basic Tişört");
+  expect(tisort).toHaveLength(1);
+  expect(tisort[0].barkod).toBe(B_TISORT);
+  expect(tisort[0].stok).toBe(1);
+});
+
+test("Beden grupları (tek ürün, adım adım): üst/alt grup düğmeleri kutuları açar; adetler doğru varyantlara yazılır", async () => {
+  const p = cihazlar.pc.page;
+  await p.goto("/urunler/yeni");
+  await p.getByRole("button", { name: /Tek ürün/ }).click();
+  await yaz(p.getByLabel("Ürün adı *"), "Deri Ceket Grup");
+  await yaz(p.getByLabel("Marka", { exact: true }), "Mango");
+  await p.getByRole("button", { name: "Siyah", exact: true }).click();
+  await p.getByRole("button", { name: /Alt grup \(30–42\)/ }).click();
+  await expect(p.getByLabel(/^Siyah \d+ adet$/)).toHaveCount(9);
+  await p.getByRole("button", { name: /Üst grup \(S–3XL\)/ }).click();
+  await expect(p.getByLabel(/^Siyah \S+ adet$/)).toHaveCount(6);
+  await yaz(p.getByLabel("Siyah S adet", { exact: true }), "3");
+  await p.getByLabel("Siyah M adet", { exact: true }).fill("2");
+  await p.getByLabel("Siyah XL adet", { exact: true }).fill("10");
+  await p.getByLabel("Siyah 3XL adet", { exact: true }).fill("1");
+  await yaz(p.getByLabel("Alış fiyatı (₺) *"), "900");
+  await yaz(p.getByLabel("Satış fiyatı (₺) *"), "2500");
+  await expect(p.getByText(/6 varyant · 16 adet/)).toBeVisible();
+  await p.getByRole("button", { name: "Ürünü kaydet" }).click();
+  await expect(p.getByRole("heading", { name: "Ürün kaydedildi" })).toBeVisible();
+  const liste = (await (await p.request.get(`/api/pos/ara?q=${encodeURIComponent("Deri Ceket Grup")}`)).json()).sonuclar as { beden: string; stok: number }[];
+  expect(liste.filter((v) => v.stok > 0).map((v) => `${v.beden}:${v.stok}`).sort()).toEqual(["3XL:1", "M:2", "S:3", "XL:10"]);
+});

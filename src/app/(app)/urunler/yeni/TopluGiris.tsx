@@ -8,16 +8,20 @@ import { useToast } from "@/components/Toast";
 import { api, ApiHatasi } from "@/lib/istemci";
 import { aiGorseliHazirla, urunGorseliHazirla } from "@/lib/resim";
 import { gorselYukle } from "@/lib/yukle";
+import { barkodIyilestir, yerelBarkodOku } from "@/lib/etiketBarkod";
 import { paraFormat } from "@/lib/para";
+import { BEDEN_GRUPLARI, normalBeden, type BedenGrubu } from "@/lib/giyim";
 
+type Grup = "tek" | BedenGrubu;
 type Durum = "sirada" | "analiz" | "hazir" | "hata" | "kaydedildi" | "kayit_hata";
 type Satir = {
   id: string; durum: Durum; mesaj?: string; onizleme: string; gorsel?: Blob;
   ad: string; marka: string; kategori: string; renk: string; beden: string; barkod: string; adet: string; alis: string; satis: string;
   uyarilar: string[]; guven: number | null;
+  grup: Grup; bedenAdet: Record<string, string>; // grup seçiliyse: beden → adet kutuları
   mevcut?: { varyantId: string; urunAdi: string; renk: string; beden: string; stok: number; satis: number; alis: number | null };
 };
-type Varsayilan = { kategori: string; tedarikci: string; alis: string; satis: string; adet: string };
+type Varsayilan = { kategori: string; tedarikci: string; alis: string; satis: string; adet: string; grup: Grup };
 type EtiketSonucu = { marka: string | null; urunAdi: string | null; kategori: string | null; renk: string | null; beden: string | null; barkod: string | null; fiyat: number | null; guven: number | null; uyarilar: string[] };
 
 const MAX_EZAMANLI = 3;
@@ -27,7 +31,7 @@ const sayi = (s: string) => Number(s.replace(",", "."));
 export function TopluGiris({ aiHazir }: { aiHazir: boolean }) {
   const bildir = useToast();
   const [satirlar, setSatirlar] = useState<Satir[]>([]);
-  const [vars, setVars] = useState<Varsayilan>({ kategori: "", tedarikci: "", alis: "", satis: "", adet: "1" });
+  const [vars, setVars] = useState<Varsayilan>({ kategori: "", tedarikci: "", alis: "", satis: "", adet: "1", grup: "tek" });
   const [kamera, setKamera] = useState(false);
   const [kaydediyor, setKaydediyor] = useState(false);
   const [surukle, setSurukle] = useState(false);
@@ -43,6 +47,7 @@ export function TopluGiris({ aiHazir }: { aiHazir: boolean }) {
     guncelle(id, { durum: "analiz", mesaj: undefined });
     try {
       const [kucuk, ai] = await Promise.all([urunGorseliHazirla(dosya), aiGorseliHazirla(dosya)]);
+      const yerel = yerelBarkodOku(dosya, ai.blob); // AI analiziyle paralel: çizgilerden okuma
       guncelle(id, { onizleme: kucuk.dataUrl, gorsel: kucuk.blob });
       if (!aiHazir) { guncelle(id, { durum: "hata", mesaj: "Yapay zeka kapalı, bilgileri elle girin." }); return; }
       let sonuc: EtiketSonucu | null = null;
@@ -57,6 +62,7 @@ export function TopluGiris({ aiHazir }: { aiHazir: boolean }) {
         }
       }
       if (!sonuc) throw new Error("Analiz yapılamadı");
+      sonuc = await barkodIyilestir(sonuc, dosya, await yerel);
       const v = varsRef.current;
       let mevcut: Satir["mevcut"];
       if (sonuc.barkod) {
@@ -92,7 +98,7 @@ export function TopluGiris({ aiHazir }: { aiHazir: boolean }) {
     if (!resimler.length) return bildir("Görsel dosyası seçilmedi", "hata");
     const yeni: Satir[] = resimler.map((f) => ({
       id: `s${++sayac}`, durum: "sirada", onizleme: URL.createObjectURL(f), ad: "", marka: "", kategori: varsRef.current.kategori, renk: "", beden: "", barkod: "",
-      adet: varsRef.current.adet || "1", alis: varsRef.current.alis, satis: varsRef.current.satis, uyarilar: [], guven: null,
+      adet: varsRef.current.adet || "1", alis: varsRef.current.alis, satis: varsRef.current.satis, uyarilar: [], guven: null, grup: varsRef.current.grup, bedenAdet: {},
     }));
     setSatirlar((l) => [...l, ...yeni]);
     yeni.forEach((s, i) => kuyruk.current.push({ id: s.id, dosya: resimler[i] }));
@@ -104,15 +110,29 @@ export function TopluGiris({ aiHazir }: { aiHazir: boolean }) {
   const eksikler = (s: Satir): string[] => {
     const e: string[] = [];
     if (!s.ad.trim()) e.push("ürün adı");
-    if (!s.mevcut) {
+    if (s.grup !== "tek") {
       if (!s.renk.trim()) e.push("renk");
-      if (!s.beden.trim()) e.push("beden");
       if (!(sayi(s.satis) > 0)) e.push("satış fiyatı");
+      if (bedenKalemleri(s).length === 0) e.push("en az bir bedene adet");
+    } else {
+      if (!s.mevcut) {
+        if (!s.renk.trim()) e.push("renk");
+        if (!s.beden.trim()) e.push("beden");
+        if (!(sayi(s.satis) > 0)) e.push("satış fiyatı");
+      }
+      if (!(Number.isInteger(sayi(s.adet)) && sayi(s.adet) >= 1)) e.push("adet");
     }
-    if (!(Number.isInteger(sayi(s.adet)) && sayi(s.adet) >= 1)) e.push("adet");
     if (!(sayi(s.alis) >= 0) || s.alis.trim() === "") e.push("alış fiyatı");
     return e;
   };
+
+  /** Beden grubunu değiştirir. Kayıtlı barkodla gelen satır gruba geçerken kilidi açılır (stok ekleme kararı sunucuda, renk+beden uyumuna göre). */
+  const grupUygula = (s: Satir, g: Grup): Satir => ({
+    ...s, grup: g,
+    ...(g !== "tek" && s.mevcut ? { renk: s.renk || s.mevcut.renk, beden: s.beden || s.mevcut.beden, mevcut: undefined } : {}),
+  });
+  const grupSec = (id: string, g: Grup) => setSatirlar((l) => l.map((s) => (s.id === id ? grupUygula(s, g) : s)));
+  const bedenAdetiYaz = (id: string, b: string, v: string) => setSatirlar((l) => l.map((s) => (s.id === id ? { ...s, bedenAdet: { ...s.bedenAdet, [b]: v.replace(/\D/g, "") } } : s)));
 
   const kaydedilebilir = satirlar.filter((s) => ["hazir", "hata", "kayit_hata"].includes(s.durum) && eksikler(s).length === 0);
   const bekleyen = satirlar.filter((s) => s.durum === "sirada" || s.durum === "analiz").length;
@@ -120,13 +140,17 @@ export function TopluGiris({ aiHazir }: { aiHazir: boolean }) {
   /** hepsi=false: yalnızca boş alanlar; hepsi=true: dolu olanların üzerine de yazar (yalnızca ortak alanda değer girilmiş olanlar) */
   function varsayilanlariUygula(hepsi: boolean) {
     const ye = (s: string, v: string) => (v.trim() && (hepsi || !s.trim()) ? v : s);
-    setSatirlar((l) => l.map((s) => (s.durum === "kaydedildi" || s.durum === "sirada" || s.durum === "analiz" ? s : {
-      ...s,
-      kategori: s.mevcut ? s.kategori : ye(s.kategori, vars.kategori),
-      alis: ye(s.alis, vars.alis),
-      satis: s.mevcut ? s.satis : ye(s.satis, vars.satis),
-      adet: ye(s.adet, vars.adet),
-    })));
+    setSatirlar((l) => l.map((s) => {
+      if (s.durum === "kaydedildi" || s.durum === "sirada" || s.durum === "analiz") return s;
+      const g = {
+        ...s,
+        kategori: s.mevcut ? s.kategori : ye(s.kategori, vars.kategori),
+        alis: ye(s.alis, vars.alis),
+        satis: s.mevcut ? s.satis : ye(s.satis, vars.satis),
+        adet: ye(s.adet, vars.adet),
+      };
+      return hepsi ? grupUygula(g, vars.grup) : g;
+    }));
     bildir(hepsi ? "Tüm satırlara uygulandı" : "Boş alanlara uygulandı");
   }
   async function hepsiniKaydet() {
@@ -142,22 +166,54 @@ export function TopluGiris({ aiHazir }: { aiHazir: boolean }) {
         gorselIds.set(k, s.id);
         try { gorselUrl.set(k, await gorselYukle(s.gorsel)); } catch { /* görselsiz devam */ }
       }
-      const payload = secili.map((s) => {
+      const payload = secili.flatMap((s) => {
         const k = `${s.marka.trim().toLocaleLowerCase("tr-TR")}|${s.ad.trim().toLocaleLowerCase("tr-TR")}`;
-        return {
+        if (s.grup !== "tek") {
+          // Grup satırı: adet girilen her beden ayrı varyant olur. Etiketteki barkod yalnızca okunan bedene verilir (diğerlerine sistem üretir).
+          const okunan = normalBeden(s.beden);
+          return bedenKalemleri(s).map(({ b, n }) => ({
+            id: `${s.id}#${b}`, varyantId: null, ad: s.ad, markaAd: s.marka || null, kategoriAd: s.kategori || null, tedarikciAd: vars.tedarikci || null,
+            gorselUrl: gorselUrl.get(k) ?? null, renk: s.renk, beden: b, barkod: b === okunan && s.barkod ? s.barkod : null,
+            adet: n, alisFiyati: sayi(s.alis), satisFiyati: sayi(s.satis) || 0,
+          }));
+        }
+        return [{
           id: s.id, varyantId: s.mevcut?.varyantId ?? null, ad: s.ad, markaAd: s.marka || null, kategoriAd: s.kategori || null, tedarikciAd: vars.tedarikci || null,
           gorselUrl: gorselUrl.get(k) ?? null, renk: s.mevcut ? s.mevcut.renk : s.renk, beden: s.mevcut ? s.mevcut.beden : s.beden, barkod: s.mevcut ? null : s.barkod || null,
           adet: Math.round(sayi(s.adet)), alisFiyati: sayi(s.alis), satisFiyati: sayi(s.satis) || 0,
-        };
+        }];
       });
-      const r = await api<{ sonuclar: { id: string; durum: string; mesaj?: string }[]; basarili: number; hatali: number }>("/api/urunler/toplu", { govde: { satirlar: payload } });
+      // Sunucu tek istekte en fazla 150 satır alır; grup satırları çoğalttığı için parçalara bölünür
+      const sonuclar: { id: string; durum: string; mesaj?: string }[] = [];
+      for (let i = 0; i < payload.length; i += 100) {
+        const r = await api<{ sonuclar: { id: string; durum: string; mesaj?: string }[] }>("/api/urunler/toplu", { govde: { satirlar: payload.slice(i, i + 100) } });
+        sonuclar.push(...r.sonuclar);
+      }
+      const bul = (id: string) => sonuclar.filter((y) => y.id === id || y.id.startsWith(`${id}#`));
+      let basarili = 0, hatali = 0;
+      for (const s of secili) {
+        const xs = bul(s.id);
+        const h = xs.filter((x) => x.durum === "hata").length;
+        basarili += xs.length - h; hatali += h;
+      }
       setSatirlar((l) => l.map((s) => {
-        const x = r.sonuclar.find((y) => y.id === s.id);
-        if (!x) return s;
-        return x.durum === "hata" ? { ...s, durum: "kayit_hata", mesaj: x.mesaj } : { ...s, durum: "kaydedildi", mesaj: x.mesaj ?? (x.durum === "stok_eklendi" ? "Stok eklendi" : "Yeni ürün oluşturuldu") };
+        const xs = bul(s.id);
+        if (!xs.length) return s;
+        const hatalilar = xs.filter((x) => x.durum === "hata");
+        if (s.grup === "tek") {
+          const x = xs[0];
+          return x.durum === "hata" ? { ...s, durum: "kayit_hata", mesaj: x.mesaj } : { ...s, durum: "kaydedildi", mesaj: x.mesaj ?? (x.durum === "stok_eklendi" ? "Stok eklendi" : "Yeni ürün oluşturuldu") };
+        }
+        const adetToplam = xs.reduce((t, x) => t + (x.durum === "hata" ? 0 : Number(s.bedenAdet[x.id.split("#")[1]]) || 0), 0);
+        const notlar = [...new Set(xs.filter((x) => x.durum !== "hata" && x.mesaj).map((x) => x.mesaj as string))].join(" · ");
+        if (!hatalilar.length) return { ...s, durum: "kaydedildi", mesaj: `${xs.length} beden, ${adetToplam} adet kaydedildi${notlar ? ` · ${notlar}` : ""}` };
+        // Kısmi hata: kaydedilen bedenlerin kutuları boşaltılır ki yeniden denemede stok ikinci kez eklenmesin
+        const kalan = { ...s.bedenAdet };
+        for (const x of xs) if (x.durum !== "hata") kalan[x.id.split("#")[1]] = "";
+        return { ...s, durum: "kayit_hata", bedenAdet: kalan, mesaj: `${xs.length - hatalilar.length} beden kaydedildi. Hata: ${hatalilar.map((x) => `${x.id.split("#")[1]}: ${x.mesaj}`).join("; ")}` };
       }));
-      if (r.hatali) bildir(`${r.basarili} satır kaydedildi, ${r.hatali} satırda hata var`, "hata");
-      else bildir(`${r.basarili} satır kaydedildi`);
+      if (hatali) bildir(`${basarili} satır kaydedildi, ${hatali} satırda hata var`, "hata");
+      else bildir(`${basarili} satır kaydedildi`);
     } catch (e) {
       bildir((e as Error).message, "hata");
     } finally {
@@ -200,6 +256,7 @@ export function TopluGiris({ aiHazir }: { aiHazir: boolean }) {
               <label className="text-xs text-muted">Satış fiyatı (₺)<Girdi inputMode="decimal" value={vars.satis} onChange={(e) => setVars({ ...vars, satis: e.target.value })} className="mt-1" /></label>
               <label className="text-xs text-muted">Adet<Girdi inputMode="numeric" value={vars.adet} onChange={(e) => setVars({ ...vars, adet: e.target.value })} className="mt-1" /></label>
             </div>
+            <div className="mt-3 text-xs text-muted">Beden girişi (yeni fotoğraflara ve "Tümüne uygula"ya geçer)<GrupSecici deger={vars.grup} sec={(g) => setVars({ ...vars, grup: g })} /></div>
             <div className="mt-3 flex flex-wrap gap-2"><Buton kucuk varyant="ikincil" onClick={() => varsayilanlariUygula(false)}>Boş alanlara uygula</Buton><Buton kucuk varyant="ikincil" onClick={() => varsayilanlariUygula(true)}>Tümüne uygula</Buton></div>
           </details>
         </Kart>
@@ -229,18 +286,24 @@ export function TopluGiris({ aiHazir }: { aiHazir: boolean }) {
                   {s.mesaj && <p className={cn("mb-2 text-xs", s.durum === "kayit_hata" || s.durum === "hata" ? "text-danger" : "text-ok")}>{s.mesaj}</p>}
                   {s.mevcut && <p className="mb-2 text-xs text-info">Bu barkod zaten kayıtlı: <b>{s.mevcut.urunAdi}</b> {s.mevcut.renk}/{s.mevcut.beden}. Kaydedince adet bu ürünün stoğuna eklenir. Satış fiyatını değiştirirseniz ürünün fiyatı güncellenir.</p>}
                   {s.uyarilar.map((u) => <p key={u} className="mb-2 flex items-start gap-1.5 text-xs text-warn"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />{u}</p>)}
+                  {(s.durum !== "sirada" && s.durum !== "analiz" && !kilitli) && (
+                    <div className="mb-2"><GrupSecici deger={s.grup} sec={(g) => grupSec(s.id, g)} /></div>
+                  )}
                   {(s.durum !== "sirada" && s.durum !== "analiz") && (
                     <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-5">
                       <Alan e="Marka" d={s.marka} liste="dl-markalar" kilit={kilitli || !!s.mevcut} f={(v) => guncelle(s.id, { marka: v })} />
                       <Alan e="Ürün adı" d={s.ad} kilit={kilitli} yildiz f={(v) => guncelle(s.id, { ad: v })} gen />
                       <Alan e="Tür" d={s.kategori} liste="dl-kategoriler" kilit={kilitli || !!s.mevcut} f={(v) => guncelle(s.id, { kategori: v })} />
                       <Alan e="Renk" d={s.mevcut ? s.mevcut.renk : s.renk} kilit={kilitli || !!s.mevcut} yildiz f={(v) => guncelle(s.id, { renk: v })} />
-                      <Alan e="Beden" d={s.mevcut ? s.mevcut.beden : s.beden} kilit={kilitli || !!s.mevcut} yildiz f={(v) => guncelle(s.id, { beden: v })} />
-                      <Alan e="Adet" d={s.adet} kilit={kilitli} yildiz mod="numeric" f={(v) => guncelle(s.id, { adet: v })} />
+                      {s.grup === "tek" && <Alan e="Beden" d={s.mevcut ? s.mevcut.beden : s.beden} kilit={kilitli || !!s.mevcut} yildiz f={(v) => guncelle(s.id, { beden: v })} />}
+                      {s.grup === "tek" && <Alan e="Adet" d={s.adet} kilit={kilitli} yildiz mod="numeric" f={(v) => guncelle(s.id, { adet: v })} />}
                       <Alan e="Alış ₺" d={s.alis} kilit={kilitli} yildiz mod="decimal" f={(v) => guncelle(s.id, { alis: v })} />
                       <Alan e="Satış ₺" d={s.satis} kilit={kilitli} yildiz={!s.mevcut} mod="decimal" f={(v) => guncelle(s.id, { satis: v })} />
                       <Alan e="Barkod" d={s.barkod} kilit={kilitli || !!s.mevcut} ipucu="Boşsa sistem üretir" mod="numeric" f={(v) => guncelle(s.id, { barkod: v })} />
                     </div>
+                  )}
+                  {s.grup !== "tek" && s.durum !== "kaydedildi" && s.durum !== "sirada" && s.durum !== "analiz" && (
+                    <BedenKutulari grup={s.grup} adetler={s.bedenAdet} okunan={normalBeden(s.beden)} yaz={(b, v) => bedenAdetiYaz(s.id, b, v)} />
                   )}
                   {s.durum !== "kaydedildi" && s.durum !== "sirada" && s.durum !== "analiz" && eksik.length > 0 && <p className="mt-2 text-xs text-muted">Eksik: {eksik.join(", ")}</p>}
                   {(s.durum === "hata" || s.durum === "hazir") && s.gorsel && aiHazir && (
@@ -270,6 +333,42 @@ export function TopluGiris({ aiHazir }: { aiHazir: boolean }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function bedenKalemleri(s: Satir): { b: string; n: number }[] {
+  if (s.grup === "tek") return [];
+  return BEDEN_GRUPLARI[s.grup].bedenler.map((b) => ({ b, n: Math.round(Number(s.bedenAdet[b]) || 0) })).filter((x) => x.n > 0);
+}
+
+// Modül düzeyinde kalmalı (render içinde tanımlanırsa her tuşta yeniden kurulur ve klavye kapanır)
+function GrupSecici({ deger, sec }: { deger: Grup; sec: (g: Grup) => void }) {
+  const secenekler: { g: Grup; ad: string }[] = [{ g: "tek", ad: "Tek beden" }, { g: "ust", ad: BEDEN_GRUPLARI.ust.ad }, { g: "alt", ad: BEDEN_GRUPLARI.alt.ad }];
+  return (
+    <div role="group" aria-label="Beden girişi" className="mt-1 flex flex-wrap gap-1.5">
+      {secenekler.map((o) => (
+        <button key={o.g} type="button" aria-pressed={deger === o.g} onClick={() => sec(o.g)}
+          className={cn("min-h-9 rounded-full border px-3 text-xs font-medium transition", deger === o.g ? "border-foreground bg-foreground text-background" : "border-border bg-surface hover:bg-surface-2")}>{o.ad}</button>
+      ))}
+    </div>
+  );
+}
+
+function BedenKutulari({ grup, adetler, okunan, yaz }: { grup: BedenGrubu; adetler: Record<string, string>; okunan: string; yaz: (b: string, v: string) => void }) {
+  const bedenler = BEDEN_GRUPLARI[grup].bedenler;
+  const toplam = bedenler.reduce((t, b) => t + (Number(adetler[b]) || 0), 0);
+  return (
+    <div className="mt-2 rounded-xl border border-border bg-surface-2/50 p-2.5">
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 lg:grid-cols-9">
+        {bedenler.map((b) => (
+          <label key={b} className={cn("block rounded-lg text-center text-[11px] font-semibold", b === okunan ? "text-accent" : "text-muted")}>
+            {b}{b === okunan && <span className="font-normal"> · etikette</span>}
+            <Girdi inputMode="numeric" aria-label={`${b} adet`} value={adetler[b] ?? ""} placeholder="0" onChange={(e) => yaz(b, e.target.value)} className="mt-0.5 min-h-10 px-1 py-1 text-center text-sm" />
+          </label>
+        ))}
+      </div>
+      <p className="mt-1.5 text-xs text-muted">Toplam <b className="text-foreground">{toplam}</b> adet · Adet yazılmayan bedenler açılmaz.</p>
     </div>
   );
 }

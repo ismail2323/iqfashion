@@ -70,3 +70,10 @@ export const BEDEN_SETLERI = {
 } as const;
 
 export const HIZLI_RENKLER = ["Siyah", "Beyaz", "Lacivert", "Gri", "Antrasit", "Mavi", "Açık Mavi", "Koyu Mavi", "Kırmızı", "Bordo", "Yeşil", "Haki", "Bej", "Kahverengi", "Ekru"];
+
+/** Hızlı beden grupları: üst giyim (S–3XL) ve alt giyim (30–42). Kutular tek tek açılır, adet yazılır. */
+export const BEDEN_GRUPLARI = {
+  ust: { ad: "Üst grup (S–3XL)", bedenler: ["S", "M", "L", "XL", "XXL", "3XL"] },
+  alt: { ad: "Alt grup (30–42)", bedenler: ["30", "31", "32", "33", "34", "36", "38", "40", "42"] },
+} as const;
+export type BedenGrubu = keyof typeof BEDEN_GRUPLARI;
