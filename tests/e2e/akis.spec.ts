@@ -9,6 +9,7 @@ const ORIGIN = "http://localhost:3200";
 const ean = (govde: string) => govde + kontrolBasamagi(govde);
 const BARKOD_1 = ean("400638133393");
 const BARKOD_2 = ean("400638133394");
+const BARKOD_OZEL = ean("400638133395"); // elle yazılan barkod (tek ürün)
 
 type Hesap = { email: string; sifre: string; ctx: BrowserContext; page: Page };
 let browser: Browser;
@@ -170,7 +171,12 @@ test("5. Tek ürün: kategori, renk × beden tablosu, fiyat ve kayıt", async ()
   await m.goto("/urunler/yeni");
   await m.getByRole("button", { name: /Tek ürün/ }).click();
   await m.getByRole("button", { name: "Pantolon", exact: true }).click();
-  await m.getByLabel("Ürün adı *").fill("Slim Fit Kot Pantolon");
+  // TUŞ TUŞ yazma: her tuşta odak korunmalı (telefonda klavye kapanma hatasının regresyon testi)
+  const adAlani = m.getByLabel("Ürün adı *");
+  await adAlani.click();
+  await adAlani.pressSequentially("Slim Fit Kot Pantolon", { delay: 15 });
+  await expect(adAlani).toHaveValue("Slim Fit Kot Pantolon");
+  await expect(adAlani).toBeFocused();
   await m.getByLabel("Marka", { exact: true }).fill("Hugo");
   await m.getByRole("button", { name: "Açık Mavi", exact: true }).click();
   await m.getByRole("button", { name: "Siyah", exact: true }).click();
@@ -178,6 +184,13 @@ test("5. Tek ürün: kategori, renk × beden tablosu, fiyat ve kayıt", async ()
   await m.getByLabel("Siyah 32 adet").fill("5");
   await m.getByLabel("Siyah 34 adet").fill("4");
   await m.getByLabel("Açık Mavi 32 adet").fill("6");
+  // Varyant barkodunu da tuş tuş yaz: 13 rakamın hepsi alana girmeli, klavye/odak kapanmamalı
+  await m.getByText("Varyant barkodları").click();
+  const barkodAlani = m.getByPlaceholder("otomatik").first();
+  await barkodAlani.click();
+  await barkodAlani.pressSequentially(BARKOD_OZEL, { delay: 15 });
+  await expect(barkodAlani).toHaveValue(BARKOD_OZEL);
+  await expect(barkodAlani).toBeFocused();
   await m.getByLabel("Alış fiyatı (₺) *").fill("900");
   await m.getByLabel("Satış fiyatı (₺) *").fill("1790");
   await expect(m.getByText("Kâr marjı")).toBeVisible();
@@ -187,12 +200,35 @@ test("5. Tek ürün: kategori, renk × beden tablosu, fiyat ve kayıt", async ()
   // Her varyanta geçerli (EAN-13) benzersiz barkod üretildi
   const kodlar = await m.locator("code").allInnerTexts();
   expect(kodlar.length).toBe(10);
-  for (const k of kodlar) expect(k).toMatch(/^20\d{11}$/);
+  for (const k of kodlar) expect(k).toMatch(new RegExp(`^(20\\d{11}|${BARKOD_OZEL})$`)); // 9 sistem barkodu + elle yazılan
+  expect(kodlar).toContain(BARKOD_OZEL);
   expect(new Set(kodlar).size).toBe(10);
   await m.goto("/urunler");
   await expect(m.getByText("Slim Fit Kot Pantolon")).toBeVisible();
 });
 
+test("5b. BARKOD KURALI (tek ürün): kayıtlı barkod hata vermez, mevcut varyanta stok eklenir; yeni ürün açılmaz", async () => {
+  const m = hesaplar.murat.page;
+  const onceki = (await (await m.request.get(`/api/barkod/${BARKOD_OZEL}`)).json()).varyant;
+  expect(onceki.stok).toBe(0);
+  await m.goto("/urunler/yeni");
+  await m.getByRole("button", { name: /Tek ürün/ }).click();
+  await m.getByLabel("Ürün adı *").fill("Tamamen Başka Ad");
+  await m.getByRole("button", { name: "Beyaz", exact: true }).click();
+  await m.getByPlaceholder("Beden ekle").fill("30");
+  await m.getByRole("button", { name: "Bedeni ekle" }).click();
+  await m.getByLabel("Beyaz 30 adet").fill("5");
+  await m.getByText("Varyant barkodları").click();
+  await m.getByPlaceholder("otomatik").first().fill(BARKOD_OZEL);
+  await m.getByLabel("Alış fiyatı (₺) *").fill("900");
+  await m.getByLabel("Satış fiyatı (₺) *").fill("1790");
+  await m.getByRole("button", { name: "Ürünü kaydet" }).click();
+  await expect(m.getByRole("heading", { name: "Ürün kaydedildi" })).toBeVisible();
+  await expect(m.getByText(/zaten kayıtlıydı/)).toBeVisible();
+  expect((await (await m.request.get(`/api/barkod/${BARKOD_OZEL}`)).json()).varyant.stok).toBe(5);
+  await m.goto("/urunler?q=Tamamen");
+  await expect(m.getByText("Ürün bulunamadı")).toBeVisible(); // yeni ürün kartı AÇILMADI
+});
 test("6. Toplu fotoğraf + AI: çoklu seçim, otomatik doldurma, birleşme ve mevcut barkoda stok", async () => {
   const m = hesaplar.murat.page;
   let sayac = 0;

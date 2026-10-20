@@ -51,12 +51,29 @@ describe("toplu ürün girişi", () => {
     expect(r[2].durum).toBe("yeni");
     expect(await prisma.urun.count()).toBe(1);
   });
-  it("başka üründe kayıtlı barkodu kullanan grup hata alır, diğer grup kaydedilir", async () => {
-    await topluUrunGirisi([satir("1", { barkod: "4006381333931" })], t.a.id, t.mudur);
-    const r = await topluUrunGirisi([satir("2", { ad: "Başka Ürün", barkod: "4006381333931" }), satir("3", { ad: "Üçüncü" })], t.a.id, t.mudur);
-    expect(r[0].durum).toBe("hata");
-    expect(r[0].mesaj).toMatch(/zaten kayıtlı/);
+  it("BARKOD KURALI: sistemde kayıtlı barkod (istemci işaretlemese bile) mevcut varyanta stok ekler, yeni ürün açmaz", async () => {
+    await topluUrunGirisi([satir("1", { barkod: "4006381333931", adet: 2 })], t.a.id, t.mudur);
+    const v = await prisma.varyant.findFirstOrThrow({ where: { barkod: "4006381333931" } });
+    // farklı ad/renk/beden yazılmış olsa da aynı barkod = aynı varyant
+    const r = await topluUrunGirisi([satir("2", { ad: "Tamamen Farklı Ad", beden: "XL", barkod: "4006381333931", adet: 3 }), satir("3", { ad: "Üçüncü" })], t.a.id, t.mudur);
+    expect(r[0]).toMatchObject({ durum: "stok_eklendi" });
     expect(r[1].durum).toBe("yeni");
-    expect(await prisma.urun.count()).toBe(2); // Slim Kot + Üçüncü (Başka Ürün geri alındı)
+    expect(await stok(v.id)).toBe(5);
+    expect(await prisma.urun.count()).toBe(2); // Slim Kot + Üçüncü; "Tamamen Farklı Ad" ürünü AÇILMADI
+  });
+  it("aynı YENİ barkod aynı yüklemede birden çok satırda: tek varyant, adetler toplanır (hata yok)", async () => {
+    const r = await topluUrunGirisi([satir("1", { barkod: "5901234123457", adet: 2 }), satir("2", { barkod: "5901234123457", adet: 4 }), satir("3", { barkod: "5901234123457", adet: 1 })], t.a.id, t.mudur);
+    expect(r.every((x) => x.durum !== "hata")).toBe(true);
+    const v = await prisma.varyant.findMany();
+    expect(v).toHaveLength(1);
+    expect(await stok(v[0].id)).toBe(7);
+    expect(await prisma.urun.count()).toBe(1);
+  });
+  it("barkod geçerli ama bilinmiyorsa yeni ürün açılır; barkodsuz satıra sistem barkod üretir", async () => {
+    const r = await topluUrunGirisi([satir("1", { barkod: "4006381333948" }), satir("2", { ad: "Barkodsuz", barkod: "" })], t.a.id, t.mudur);
+    expect(r.map((x) => x.durum)).toEqual(["yeni", "yeni"]);
+    const kodlar = (await prisma.varyant.findMany()).map((x) => x.barkod);
+    expect(kodlar).toContain("4006381333948");
+    expect(kodlar.some((k) => /^20\d{11}$/.test(k))).toBe(true);
   });
 });

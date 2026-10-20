@@ -18,3 +18,4 @@ test-results/
 *.tmp.mjs
 *.tmp.mts
 *.tmp.ts
+.pgdata-log.txt

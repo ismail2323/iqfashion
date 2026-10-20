@@ -15,6 +15,17 @@ type Etiket = { marka: string | null; urunAdi: string | null; kategori: string |
 const sayi = (s: string) => Number(s.replace(",", "."));
 const anahtar = (r: string, b: string) => `${r}|${b}`;
 
+// DİKKAT: Bu bileşen modül düzeyinde kalmalı. TekUrun içinde tanımlanırsa her tuş vuruşunda yeni bileşen
+// kimliği oluşur, alt ağaç sökülüp kurulur ve input odağı (telefonda klavye) kaybolur.
+function Bolum({ no, baslik, children }: { no: number; baslik: string; children: React.ReactNode }) {
+  return (
+    <Kart className="p-4 sm:p-5">
+      <h2 className="mb-4 flex items-center gap-3 font-display text-lg font-semibold"><span className="grid size-7 place-items-center rounded-full bg-foreground text-sm text-background">{no}</span>{baslik}</h2>
+      {children}
+    </Kart>
+  );
+}
+
 export function TekUrun({ aiHazir, katalog }: { aiHazir: boolean; katalog: KatalogVeri }) {
   const bildir = useToast();
   const [kategori, setKategori] = useState("");
@@ -114,14 +125,14 @@ export function TekUrun({ aiHazir, katalog }: { aiHazir: boolean; katalog: Katal
     try {
       let gorselUrl: string | null = null;
       if (gorsel) gorselUrl = await gorselYukle(gorsel.blob).catch(() => null);
-      const r = await api<{ urunId: string; varyantlar: { id: string; renk: string; beden: string; barkod: string }[] }>("/api/urunler", {
+      const r = await api<{ urunId: string; mevcutBarkod?: number; varyantlar: { id: string; renk: string; beden: string; barkod: string }[] }>("/api/urunler", {
         govde: {
           ad, markaAd: marka || null, kategoriAd: kategori || null, cinsiyet: cinsiyet || null, sezon: sezon || null, tedarikciAd: tedarikci || null, gorselUrl,
           varyantlar: hucreler.map((h) => ({ renk: h.r, beden: h.b, barkod: barkodlar[h.k] || null, alisFiyati: sayi(alis), satisFiyati: sayi(satis), adet: Number(adetler[h.k]) || 0, minStok: Number(minStok) || 0 })),
         },
       });
       setSonuc(r);
-      bildir("Ürün kaydedildi");
+      bildir(r.mevcutBarkod ? `Kaydedildi. ${r.mevcutBarkod} barkod zaten kayıtlıydı; o ürünlerin stoğu artırıldı.` : "Ürün kaydedildi");
     } catch (e) {
       setHata((e as Error).message);
     } finally {
@@ -153,13 +164,6 @@ export function TekUrun({ aiHazir, katalog }: { aiHazir: boolean; katalog: Katal
       </Kart>
     );
   }
-
-  const Bolum = ({ no, baslik, children }: { no: number; baslik: string; children: React.ReactNode }) => (
-    <Kart className="p-4 sm:p-5">
-      <h2 className="mb-4 flex items-center gap-3 font-display text-lg font-semibold"><span className="grid size-7 place-items-center rounded-full bg-foreground text-sm text-background">{no}</span>{baslik}</h2>
-      {children}
-    </Kart>
-  );
 
   return (
     <div className="space-y-4 pb-28">

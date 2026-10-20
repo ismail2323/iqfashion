@@ -33,7 +33,17 @@ const anahtar = (s?: string | null) => (s ?? "").trim().toLocaleLowerCase("tr-TR
 export async function topluUrunGirisi(satirlar: TopluSatir[], subeId: string, aktor: Aktor): Promise<SatirSonucu[]> {
   const sonuc = new Map<string, SatirSonucu>();
   const ok = (id: string, durum: SatirSonucu["durum"], mesaj?: string) => sonuc.set(id, { id, durum, mesaj });
-  const hata = (id: string, e: unknown) => sonuc.set(id, { id, durum: "hata", mesaj: e instanceof IsHatasi ? e.message : (e as { code?: string })?.code === "P2002" ? "Bu barkod/varyant zaten kayıtlı" : "Kaydedilemedi" });
+  const hata = (id: string, e: unknown) => {
+    let mesaj: string;
+    if (e instanceof IsHatasi) mesaj = e.message;
+    else {
+      // Beklenmeyen hata: nedeni gizleme (kullanıcı ve log görsün), ama iç ayrıntıyı kısa tut
+      const kod = (e as { code?: string })?.code;
+      console.error("[toplu] beklenmeyen hata:", e);
+      mesaj = kod === "P2002" ? "Bu barkod veya renk/beden zaten kayıtlı" : kod === "P2028" ? "Veritabanı meşgul/uyanıyor, birkaç saniye sonra tekrar deneyin" : `Kaydedilemedi (${kod ?? String((e as Error)?.message ?? "bilinmeyen").slice(0, 80)})`;
+    }
+    sonuc.set(id, { id, durum: "hata", mesaj });
+  };
 
   // Temel doğrulama
   const gecerli: TopluSatir[] = [];
@@ -45,8 +55,34 @@ export async function topluUrunGirisi(satirlar: TopluSatir[], subeId: string, ak
     else gecerli.push({ ...s, renk: normalRenk(s.renk), beden: normalBeden(s.beden) });
   }
 
+  // 0) BARKOD KURALI (sunucu karar verir, istemcinin işaretine güvenilmez):
+  //    barkod sistemde VARSA -> o varyanta stok eklenir; YOKSA -> yeni ürün/varyant açılır.
+  const kodlar = [...new Set(gecerli.filter((s) => !s.varyantId && s.barkod?.trim()).map((s) => s.barkod!.trim()))];
+  if (kodlar.length) {
+    const kayitli = await prisma.varyant.findMany({ where: { barkod: { in: kodlar } }, select: { id: true, barkod: true } });
+    const harita = new Map(kayitli.map((v) => [v.barkod, v.id]));
+    for (const s of gecerli) if (!s.varyantId && s.barkod?.trim() && harita.has(s.barkod.trim())) s.varyantId = harita.get(s.barkod.trim())!;
+  }
+  //    Aynı YENİ barkod aynı yüklemede birden çok satırda geçiyorsa tek satır olur, adetler toplanır.
+  const birlesenler = new Map<string, string[]>();
+  const gorulen = new Map<string, TopluSatir>();
+  const kalan: TopluSatir[] = [];
+  for (const s of gecerli) {
+    const kod = s.varyantId ? "" : (s.barkod?.trim() ?? "");
+    if (kod) {
+      const ana = gorulen.get(kod);
+      if (ana) {
+        ana.adet += s.adet;
+        birlesenler.set(ana.id, [...(birlesenler.get(ana.id) ?? []), s.id]);
+        continue;
+      }
+      gorulen.set(kod, s);
+    }
+    kalan.push(s);
+  }
+
   // 1) Zaten kayıtlı barkodlar -> tek mal kabul belgesi
-  const mevcutlar = gecerli.filter((s) => s.varyantId);
+  const mevcutlar = kalan.filter((s) => s.varyantId);
   if (mevcutlar.length) {
     try {
       await malKabul({ subeId, tedarikciAd: mevcutlar[0].tedarikciAd, notlar: "Toplu giriş (AI)", kalemler: mevcutlar.map((s) => ({ varyantId: s.varyantId!, adet: s.adet, birimMaliyet: s.alisFiyati })) }, aktor);
@@ -58,7 +94,7 @@ export async function topluUrunGirisi(satirlar: TopluSatir[], subeId: string, ak
 
   // 2) Yeni varyantlar: marka + ad'a göre grupla
   const gruplar = new Map<string, TopluSatir[]>();
-  for (const s of gecerli.filter((x) => !x.varyantId)) {
+  for (const s of kalan.filter((x) => !x.varyantId)) {
     const k = `${anahtar(s.markaAd)}|${anahtar(s.ad)}`;
     gruplar.set(k, [...(gruplar.get(k) ?? []), s]);
   }
@@ -101,6 +137,11 @@ export async function topluUrunGirisi(satirlar: TopluSatir[], subeId: string, ak
     } catch (e) {
       for (const s of grup) hata(s.id, e);
     }
+  }
+  // Birleştirilen satırlar, ana satırın sonucunu paylaşır
+  for (const [anaId, liste] of birlesenler) {
+    const r = sonuc.get(anaId);
+    for (const id of liste) sonuc.set(id, r ? { id, durum: r.durum, mesaj: r.durum === "hata" ? r.mesaj : "Aynı barkodlu satırla birleştirildi" } : { id, durum: "hata", mesaj: "İşlenemedi" });
   }
   return satirlar.map((s) => sonuc.get(s.id) ?? { id: s.id, durum: "hata", mesaj: "İşlenemedi" });
 }

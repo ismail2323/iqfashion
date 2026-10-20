@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { handler } from "@/lib/api";
-import { urunOlustur } from "@/lib/stok";
+import { malKabul, urunOlustur } from "@/lib/stok";
+import { prisma } from "@/lib/db";
 import { denetle } from "@/lib/denetim";
 import { normalBeden, normalRenk } from "@/lib/giyim";
 
@@ -27,11 +28,26 @@ const sema = z.object({
 });
 
 export const POST = handler({ roller: ["SUPER_ADMIN", "SUBE_MUDURU"], sema }, async ({ kullanici, govde, islemSube }) => {
-  const r = await urunOlustur(
-    { ...govde, varyantlar: govde.varyantlar.map((v) => ({ ...v, renk: normalRenk(v.renk), beden: normalBeden(v.beden), barkod: v.barkod || undefined })) },
-    islemSube(),
-    kullanici,
-  );
-  await denetle(kullanici, "urun-olustur", "urun", r.urun.id, { ad: r.urun.ad, varyant: r.varyantlar.length });
-  return { urunId: r.urun.id, varyantlar: r.varyantlar.map((v) => ({ id: v.id, renk: v.renk, beden: v.beden, barkod: v.barkod })) };
+  const subeId = islemSube();
+  const varyantlar = govde.varyantlar.map((v) => ({ ...v, renk: normalRenk(v.renk), beden: normalBeden(v.beden), barkod: v.barkod || undefined }));
+
+  // BARKOD KURALI: barkod sistemde varsa o varyanta stok eklenir (hata verilmez); yoksa yeni varyant/ürün açılır.
+  const kodlar = varyantlar.map((v) => v.barkod).filter((k): k is string => !!k);
+  const kayitli = kodlar.length ? await prisma.varyant.findMany({ where: { barkod: { in: kodlar } }, include: { urun: true } }) : [];
+  const kayitliHarita = new Map(kayitli.map((v) => [v.barkod, v]));
+  const mevcutlar = varyantlar.filter((v) => v.barkod && kayitliHarita.has(v.barkod));
+  const yeniler = varyantlar.filter((v) => !(v.barkod && kayitliHarita.has(v.barkod)));
+  const stokluMevcut = mevcutlar.filter((v) => v.adet > 0);
+  if (stokluMevcut.length) {
+    await malKabul({ subeId, tedarikciAd: govde.tedarikciAd, notlar: "Ürün girişi (mevcut barkod)", kalemler: stokluMevcut.map((v) => ({ varyantId: kayitliHarita.get(v.barkod!)!.id, adet: v.adet, birimMaliyet: v.alisFiyati })) }, kullanici);
+  }
+
+  if (!yeniler.length) {
+    const ilk = kayitliHarita.get(mevcutlar[0].barkod!)!;
+    await denetle(kullanici, "urun-stok-eklendi", "urun", ilk.urunId, { mevcutBarkod: mevcutlar.length });
+    return { urunId: ilk.urunId, mevcutBarkod: mevcutlar.length, varyantlar: mevcutlar.map((v) => { const k = kayitliHarita.get(v.barkod!)!; return { id: k.id, renk: k.renk, beden: k.beden, barkod: k.barkod }; }) };
+  }
+  const r = await urunOlustur({ ...govde, varyantlar: yeniler }, subeId, kullanici);
+  await denetle(kullanici, "urun-olustur", "urun", r.urun.id, { ad: r.urun.ad, varyant: r.varyantlar.length, mevcutBarkod: mevcutlar.length });
+  return { urunId: r.urun.id, mevcutBarkod: mevcutlar.length, varyantlar: r.varyantlar.map((v) => ({ id: v.id, renk: v.renk, beden: v.beden, barkod: v.barkod })) };
 });
