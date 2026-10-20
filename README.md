@@ -3,6 +3,8 @@
 Çok şubeli giyim mağazası için barkodlu stok, satış (POS), mal kabul, transfer, muhasebe ve rapor paneli.
 Next.js 16 · React 19 · Prisma 7 · PostgreSQL · Tailwind 4 · Recharts. Arayüz Türkçe, mobil/tablet uyumlu (PWA).
 
+> **Devam etmek / yayın / veritabanı / hesaplar için:** [docs/DEVAM-ET.md](docs/DEVAM-ET.md) · [docs/YAYIN-VE-VERITABANI.md](docs/YAYIN-VE-VERITABANI.md) · [docs/MIMARI.md](docs/MIMARI.md) · [docs/YAPILACAKLAR.md](docs/YAPILACAKLAR.md) · Müşteri kılavuzu: [PDF](docs/IQ-Fashion-Kullanim-Kilavuzu.pdf)
+
 ## Özellikler
 - **Roller:** Süper Admin (tüm şubeler, hesap/şube yönetimi, fiyatlar, sıfırlama), Şube Müdürü (kendi şubesi), Kasiyer (satış; maliyet/kâr görmez). Yetkiler sunucuda zorlanır.
 - **Hesap açma:** şube + müdür hesabı tek adımda; şifre otomatik üretilir (WhatsApp ile gönder), ilk girişte zorunlu değişir.

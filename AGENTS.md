@@ -7,3 +7,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+## Proje bilgisi (IQ Fashion)
+
+Bu projeye ilk kez bakan ajan: **önce docs/DEVAM-ET.md'yi** (her şeyin nerede olduğu, kurulum, yayın, hesaplar), sonra docs/MIMARI.md'yi okuyun. Yayın/veritabanı işlemleri: docs/YAYIN-VE-VERITABANI.md. Eksikler: docs/YAPILACAKLAR.md.

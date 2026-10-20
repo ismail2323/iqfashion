@@ -14,6 +14,8 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:demo": "tsx scripts/demo-yenile.mts",
+    "admin:sifre": "tsx scripts/admin-sifre.mts",
+    "veri:aktar": "tsx scripts/veri-aktar.mts",
     "test": "vitest run",
     "test:e2e": "playwright test"
   },
