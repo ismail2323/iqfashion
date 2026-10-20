@@ -488,3 +488,26 @@ test("Beden grupları (tek ürün, adım adım): üst/alt grup düğmeleri kutul
   const liste = (await (await p.request.get(`/api/pos/ara?q=${encodeURIComponent("Deri Ceket Grup")}`)).json()).sonuclar as { beden: string; stok: number }[];
   expect(liste.filter((v) => v.stok > 0).map((v) => `${v.beden}:${v.stok}`).sort()).toEqual(["3XL:1", "M:2", "S:3", "XL:10"]);
 });
+
+test("Ürün silme: süper admin ürünü kalıcı siler; uyarı kapsamı gösterir; ürün ve stoğu listeden gider", async () => {
+  const p = cihazlar.pc.page;
+  await p.goto("/urunler?q=Deri Ceket Grup");
+  await p.getByText("Deri Ceket Grup").first().click();
+  await p.getByRole("button", { name: "Düzenle" }).click();
+  await p.getByRole("button", { name: /Ürünü sil/ }).click();
+  const uyari = p.getByRole("dialog", { name: "Ürünü kalıcı sil" });
+  await expect(uyari.getByText(/geri alınamaz şekilde/)).toBeVisible();
+  await expect(uyari.getByText(/6 varyant ve 16 adet stok silinecek/)).toBeVisible();
+  await uyari.getByRole("button", { name: "Vazgeç" }).click();
+  expect((await (await p.request.get(`/api/pos/ara?q=${encodeURIComponent("Deri Ceket Grup")}`)).json()).sonuclar.length).toBeGreaterThan(0); // vazgeçince silinmedi
+  await p.getByRole("button", { name: /Ürünü sil/ }).click();
+  await p.getByRole("dialog", { name: "Ürünü kalıcı sil" }).getByRole("button", { name: "Evet, kalıcı sil" }).click();
+  await expect(p).toHaveURL(/\/urunler$/);
+  expect((await (await p.request.get(`/api/pos/ara?q=${encodeURIComponent("Deri Ceket Grup")}`)).json()).sonuclar).toHaveLength(0);
+  await p.goto("/urunler?q=Deri Ceket Grup");
+  await expect(p.getByText("Ürün bulunamadı")).toBeVisible();
+  await p.goto("/denetim");
+  await expect(p.getByText("Ürünü sildi").first()).toBeVisible();
+  // Müdür ürün silemez
+  expect((await cihazlar.mudur.page.request.delete("/api/urunler/yok-boyle-bir-id", { headers: { origin: ORIGIN } })).status()).toBe(403);
+});

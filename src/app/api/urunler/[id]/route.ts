@@ -2,6 +2,7 @@ import { z } from "zod";
 import { handler, IsHatasi } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { denetle } from "@/lib/denetim";
+import { urunOzeti, urunSil } from "@/lib/stok";
 
 const sema = z.object({
   ad: z.string().trim().min(2).max(120).optional(),
@@ -26,5 +27,13 @@ export const PATCH = handler({ roller: ["SUPER_ADMIN", "SUBE_MUDURU"], sema }, a
     data: { ad: govde.ad, markaId: marka === undefined ? undefined : (marka?.id ?? null), kategoriId: kat === undefined ? undefined : (kat?.id ?? null), cinsiyet: govde.cinsiyet, sezon: govde.sezon, aciklama: govde.aciklama, gorselUrl: govde.gorselUrl, aktif: govde.aktif },
   });
   await denetle(kullanici, "urun-guncelle", "urun", u.id, govde);
+  return { tamam: true };
+});
+
+export const GET = handler({ roller: ["SUPER_ADMIN"] }, async ({ params }) => urunOzeti(params.id));
+
+export const DELETE = handler({ roller: ["SUPER_ADMIN"] }, async ({ kullanici, params }) => {
+  const r = await urunSil(params.id);
+  await denetle(kullanici, "urun-sil", "urun", params.id, r);
   return { tamam: true };
 });

@@ -402,3 +402,38 @@ export async function transferIptal(transferId: string, aktor: Aktor) {
     return tx.transfer.findUniqueOrThrow({ where: { id: transferId } });
   });
 }
+
+
+/** Ürün silinmeden önce gösterilecek kapsam */
+export async function urunOzeti(urunId: string) {
+  const varyantlar = await prisma.varyant.findMany({ where: { urunId }, select: { id: true } });
+  const ids = varyantlar.map((v) => v.id);
+  const [stok, satisKalemi, alisKalemi, transfer] = await Promise.all([
+    prisma.stok.aggregate({ where: { varyantId: { in: ids } }, _sum: { miktar: true } }),
+    prisma.satisKalemi.count({ where: { varyantId: { in: ids } } }),
+    prisma.alisKalemi.count({ where: { varyantId: { in: ids } } }),
+    prisma.transferKalemi.count({ where: { varyantId: { in: ids } } }),
+  ]);
+  return { varyant: ids.length, stokAdedi: stok._sum.miktar ?? 0, satisKalemi, alisKalemi, transfer };
+}
+
+/**
+ * Ürünü KALICI siler: ürün kartı, tüm varyantları, şube stokları, fiyat geçmişi ve transfer kalemleri gider.
+ * Muhasebe bozulmasın diye geçmiş satış/alış belgeleri ve stok hareketleri (ürün adı yazılı kalarak) korunur.
+ */
+export async function urunSil(urunId: string) {
+  const u = await prisma.urun.findUnique({ where: { id: urunId }, select: { id: true, ad: true } });
+  if (!u) throw new IsHatasi("Ürün bulunamadı", 404);
+  const ozet = await urunOzeti(urunId);
+  await prisma.$transaction(async (tx) => {
+    const ids = (await tx.varyant.findMany({ where: { urunId }, select: { id: true } })).map((v) => v.id);
+    const etkilenen = await tx.transferKalemi.findMany({ where: { varyantId: { in: ids } }, select: { transferId: true } });
+    await tx.transferKalemi.deleteMany({ where: { varyantId: { in: ids } } });
+    // Kalemi kalmayan transfer belgeleri de kaldırılır
+    for (const transferId of new Set(etkilenen.map((k) => k.transferId))) {
+      if ((await tx.transferKalemi.count({ where: { transferId } })) === 0) await tx.transfer.delete({ where: { id: transferId } });
+    }
+    await tx.urun.delete({ where: { id: urunId } }); // varyant, stok, fiyat geçmişi cascade
+  });
+  return { ad: u.ad, ...ozet };
+}

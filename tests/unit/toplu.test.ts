@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
 import { topluUrunGirisi, type TopluSatir } from "@/lib/toplu";
+import { urunOzeti, urunSil } from "@/lib/stok";
 import { kur, temizle } from "./yardimci";
 
 let t: Awaited<ReturnType<typeof kur>>;
@@ -111,5 +112,21 @@ describe("toplu ürün girişi", () => {
     expect(await prisma.fiyatGecmisi.count({ where: { varyantId: v.id } })).toBeGreaterThanOrEqual(2);
     await topluUrunGirisi([satir("3", { varyantId: v.id, adet: 1, alisFiyati: 900, satisFiyati: 0 })], t.a.id, t.mudur);
     expect(Number((await prisma.varyant.findUniqueOrThrow({ where: { id: v.id } })).satisFiyati)).toBe(2090);
+  });
+});
+
+describe("ürün silme", () => {
+  it("ürün, varyantlar, stok ve fiyat geçmişi gider; diğer ürünler ve muhasebe belgeleri korunur", async () => {
+    await topluUrunGirisi([satir("1", { adet: 4 }), satir("2", { beden: "34", adet: 6 }), satir("3", { ad: "Başka Pantolon", renk: "Siyah", adet: 2 })], t.a.id, t.mudur);
+    const silinecek = await prisma.urun.findFirstOrThrow({ where: { ad: "Slim Kot" } });
+    expect(await urunOzeti(silinecek.id)).toMatchObject({ varyant: 2, stokAdedi: 10 });
+    const r = await urunSil(silinecek.id);
+    expect(r).toMatchObject({ ad: "Slim Kot", varyant: 2, stokAdedi: 10 });
+    expect(await prisma.urun.findUnique({ where: { id: silinecek.id } })).toBeNull();
+    expect(await prisma.varyant.count({ where: { urunId: silinecek.id } })).toBe(0);
+    expect(await prisma.urun.count()).toBe(1);
+    expect((await prisma.stok.aggregate({ _sum: { miktar: true } }))._sum.miktar).toBe(2); // yalnızca diğer ürünün stoğu kaldı
+    expect(await prisma.alisBelgesi.count()).toBe(2); // iki ürün grubu = iki alış belgesi; ikisi de (muhasebe) korunur
+    await expect(urunSil(silinecek.id)).rejects.toThrow(/bulunamadı/);
   });
 });
