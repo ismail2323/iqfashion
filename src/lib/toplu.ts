@@ -56,14 +56,30 @@ export async function topluUrunGirisi(satirlar: TopluSatir[], subeId: string, ak
   }
 
   // 0) BARKOD KURALI (sunucu karar verir, istemcinin işaretine güvenilmez):
-  //    barkod sistemde VARSA -> o varyanta stok eklenir; YOKSA -> yeni ürün/varyant açılır.
+  //    - barkod sistemde VAR ve renk/beden de AYNI  -> o varyanta stok eklenir;
+  //    - barkod sistemde var ama renk/beden FARKLI   -> farklı bir varyanttır (aynı barkod iki renkte/bedende basılmış olabilir):
+  //      veri birleştirilmez; satır yeni varyant olarak açılır ve sistem kendi barkodunu verir (uyarı gösterilir);
+  //    - barkod yok -> yeni ürün/varyant.
+  const uyarilar = new Map<string, string>();
+  const ayniVaryant = (a: { renk: string; beden: string }, b: { renk: string; beden: string }) => anahtar(a.renk) === anahtar(b.renk) && anahtar(a.beden) === anahtar(b.beden);
   const kodlar = [...new Set(gecerli.filter((s) => !s.varyantId && s.barkod?.trim()).map((s) => s.barkod!.trim()))];
   if (kodlar.length) {
-    const kayitli = await prisma.varyant.findMany({ where: { barkod: { in: kodlar } }, select: { id: true, barkod: true } });
-    const harita = new Map(kayitli.map((v) => [v.barkod, v.id]));
-    for (const s of gecerli) if (!s.varyantId && s.barkod?.trim() && harita.has(s.barkod.trim())) s.varyantId = harita.get(s.barkod.trim())!;
+    const kayitli = await prisma.varyant.findMany({ where: { barkod: { in: kodlar } }, select: { id: true, barkod: true, renk: true, beden: true } });
+    const harita = new Map(kayitli.map((v) => [v.barkod, v]));
+    for (const s of gecerli) {
+      const kod = s.barkod?.trim();
+      if (s.varyantId || !kod) continue;
+      const v = harita.get(kod);
+      if (!v) continue;
+      if (ayniVaryant(v, s)) s.varyantId = v.id;
+      else {
+        s.barkod = null;
+        uyarilar.set(s.id, `Barkod ${kod} başka varyantta kayıtlı (${v.renk}/${v.beden}); bu satır ayrı varyant olarak açıldı, sistem barkodu verildi`);
+      }
+    }
   }
-  //    Aynı YENİ barkod aynı yüklemede birden çok satırda geçiyorsa tek satır olur, adetler toplanır.
+  //    Aynı YENİ barkod aynı yüklemede birden çok satırda: aynı renk/beden ise tek satır (adetler toplanır);
+  //    farklı renk/beden ise barkod yalnız İLK satırda kalır, diğerlerine sistem barkodu verilir.
   const birlesenler = new Map<string, string[]>();
   const gorulen = new Map<string, TopluSatir>();
   const kalan: TopluSatir[] = [];
@@ -71,21 +87,23 @@ export async function topluUrunGirisi(satirlar: TopluSatir[], subeId: string, ak
     const kod = s.varyantId ? "" : (s.barkod?.trim() ?? "");
     if (kod) {
       const ana = gorulen.get(kod);
-      if (ana) {
+      if (ana && ayniVaryant(ana, s)) {
         ana.adet += s.adet;
         birlesenler.set(ana.id, [...(birlesenler.get(ana.id) ?? []), s.id]);
         continue;
       }
-      gorulen.set(kod, s);
+      if (ana) {
+        s.barkod = null;
+        uyarilar.set(s.id, `Aynı barkod (${kod}) birden fazla renk/bedende okundu; ilk satırda bırakıldı, bu satıra sistem barkodu verildi`);
+      } else gorulen.set(kod, s);
     }
     kalan.push(s);
   }
-
   // 1) Zaten kayıtlı barkodlar -> tek mal kabul belgesi
   const mevcutlar = kalan.filter((s) => s.varyantId);
   if (mevcutlar.length) {
     try {
-      await malKabul({ subeId, tedarikciAd: mevcutlar[0].tedarikciAd, notlar: "Toplu giriş (AI)", kalemler: mevcutlar.map((s) => ({ varyantId: s.varyantId!, adet: s.adet, birimMaliyet: s.alisFiyati })) }, aktor);
+      await malKabul({ subeId, tedarikciAd: mevcutlar[0].tedarikciAd, notlar: "Toplu giriş (AI)", kalemler: mevcutlar.map((s) => ({ varyantId: s.varyantId!, adet: s.adet, birimMaliyet: s.alisFiyati, satisFiyati: s.satisFiyati > 0 ? s.satisFiyati : undefined })) }, aktor);
       for (const s of mevcutlar) ok(s.id, "stok_eklendi", "Mevcut ürüne stok eklendi");
     } catch (e) {
       for (const s of mevcutlar) hata(s.id, e);
@@ -137,6 +155,11 @@ export async function topluUrunGirisi(satirlar: TopluSatir[], subeId: string, ak
     } catch (e) {
       for (const s of grup) hata(s.id, e);
     }
+  }
+  // Uyarıları (barkod çakışması vb.) başarılı satırların mesajına ekle
+  for (const [id, u] of uyarilar) {
+    const r = sonuc.get(id);
+    if (r && r.durum !== "hata") sonuc.set(id, { ...r, mesaj: [r.mesaj, u].filter(Boolean).join(" · ") });
   }
   // Birleştirilen satırlar, ana satırın sonucunu paylaşır
   for (const [anaId, liste] of birlesenler) {

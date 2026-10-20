@@ -15,12 +15,12 @@ type Satir = {
   id: string; durum: Durum; mesaj?: string; onizleme: string; gorsel?: Blob;
   ad: string; marka: string; kategori: string; renk: string; beden: string; barkod: string; adet: string; alis: string; satis: string;
   uyarilar: string[]; guven: number | null;
-  mevcut?: { varyantId: string; urunAdi: string; renk: string; beden: string; stok: number };
+  mevcut?: { varyantId: string; urunAdi: string; renk: string; beden: string; stok: number; satis: number; alis: number | null };
 };
 type Varsayilan = { kategori: string; tedarikci: string; alis: string; satis: string; adet: string };
 type EtiketSonucu = { marka: string | null; urunAdi: string | null; kategori: string | null; renk: string | null; beden: string | null; barkod: string | null; fiyat: number | null; guven: number | null; uyarilar: string[] };
 
-const MAX_EZAMANLI = 2;
+const MAX_EZAMANLI = 3;
 let sayac = 0;
 const sayi = (s: string) => Number(s.replace(",", "."));
 
@@ -46,11 +46,13 @@ export function TopluGiris({ aiHazir }: { aiHazir: boolean }) {
       guncelle(id, { onizleme: kucuk.dataUrl, gorsel: kucuk.blob });
       if (!aiHazir) { guncelle(id, { durum: "hata", mesaj: "Yapay zeka kapalı, bilgileri elle girin." }); return; }
       let sonuc: EtiketSonucu | null = null;
-      for (let deneme = 0; deneme < 3 && !sonuc; deneme++) {
+      // Çok fotoğrafta hız sınırı (429) ya da geçici AI/ağ hatası (502/0) olabilir: bekleyip tekrar dene (toplam 6 deneme)
+      for (let deneme = 0; deneme < 6 && !sonuc; deneme++) {
         try {
           sonuc = (await api<{ sonuc: EtiketSonucu }>("/api/ai/etiket", { govde: { gorsel: ai.dataUrl } })).sonuc;
         } catch (e) {
-          if (e instanceof ApiHatasi && e.durum === 429 && deneme < 2) await new Promise((r) => setTimeout(r, 6000));
+          const gecici = e instanceof ApiHatasi && (e.durum === 429 || e.durum === 502 || e.durum === 0);
+          if (gecici && deneme < 5) await new Promise((r) => setTimeout(r, e instanceof ApiHatasi && e.durum === 429 ? 8000 : 3000));
           else throw e;
         }
       }
@@ -59,12 +61,18 @@ export function TopluGiris({ aiHazir }: { aiHazir: boolean }) {
       let mevcut: Satir["mevcut"];
       if (sonuc.barkod) {
         const b = await api<{ bulundu: boolean; varyant?: { id: string; urunAdi: string; renk: string; beden: string; stok: number; alisFiyati: number | null; satisFiyati: number } }>(`/api/barkod/${encodeURIComponent(sonuc.barkod)}`).catch(() => null);
-        if (b?.bulundu && b.varyant) mevcut = { varyantId: b.varyant.id, urunAdi: b.varyant.urunAdi, renk: b.varyant.renk, beden: b.varyant.beden, stok: b.varyant.stok };
+        if (b?.bulundu && b.varyant) {
+          const k = (x: string | null) => (x ?? "").trim().toLocaleLowerCase("tr-TR");
+          const uyumlu = (!sonuc.renk || k(sonuc.renk) === k(b.varyant.renk)) && (!sonuc.beden || k(sonuc.beden) === k(b.varyant.beden));
+          if (uyumlu) mevcut = { varyantId: b.varyant.id, urunAdi: b.varyant.urunAdi, renk: b.varyant.renk, beden: b.varyant.beden, stok: b.varyant.stok, satis: b.varyant.satisFiyati, alis: b.varyant.alisFiyati };
+          else sonuc.uyarilar = [...sonuc.uyarilar, `Bu barkod başka varyantta kayıtlı (${b.varyant.renk}/${b.varyant.beden}). Etikette ${sonuc.renk ?? "?"}/${sonuc.beden ?? "?"} yazıyor; bu satır AYRI varyant olarak açılacak, sisteme yeni barkod verilir.`];
+        }
       }
       guncelle(id, {
         durum: "hazir", guven: sonuc.guven, uyarilar: sonuc.uyarilar, mevcut,
         marka: sonuc.marka ?? "", ad: sonuc.urunAdi ?? "", kategori: sonuc.kategori ?? v.kategori, renk: sonuc.renk ?? "", beden: sonuc.beden ?? "",
-        barkod: sonuc.barkod ?? "", adet: v.adet || "1", alis: v.alis, satis: sonuc.fiyat !== null ? String(sonuc.fiyat) : v.satis,
+        barkod: sonuc.barkod ?? "", adet: v.adet || "1", alis: v.alis || (mevcut?.alis != null ? String(mevcut.alis) : ""),
+        satis: mevcut ? String(mevcut.satis) : sonuc.fiyat !== null ? String(sonuc.fiyat) : v.satis,
       });
     } catch (e) {
       guncelle(id, { durum: "hata", mesaj: (e as Error).message });
@@ -139,7 +147,7 @@ export function TopluGiris({ aiHazir }: { aiHazir: boolean }) {
         return {
           id: s.id, varyantId: s.mevcut?.varyantId ?? null, ad: s.ad, markaAd: s.marka || null, kategoriAd: s.kategori || null, tedarikciAd: vars.tedarikci || null,
           gorselUrl: gorselUrl.get(k) ?? null, renk: s.mevcut ? s.mevcut.renk : s.renk, beden: s.mevcut ? s.mevcut.beden : s.beden, barkod: s.mevcut ? null : s.barkod || null,
-          adet: Math.round(sayi(s.adet)), alisFiyati: sayi(s.alis), satisFiyati: s.mevcut ? 0 : sayi(s.satis),
+          adet: Math.round(sayi(s.adet)), alisFiyati: sayi(s.alis), satisFiyati: sayi(s.satis) || 0,
         };
       });
       const r = await api<{ sonuclar: { id: string; durum: string; mesaj?: string }[]; basarili: number; hatali: number }>("/api/urunler/toplu", { govde: { satirlar: payload } });
@@ -219,7 +227,7 @@ export function TopluGiris({ aiHazir }: { aiHazir: boolean }) {
                     <button onClick={() => sil(s.id)} aria-label="Satırı sil" className="ml-auto grid size-8 place-items-center rounded-lg text-muted hover:bg-danger-soft hover:text-danger"><Trash2 className="size-4" /></button>
                   </div>
                   {s.mesaj && <p className={cn("mb-2 text-xs", s.durum === "kayit_hata" || s.durum === "hata" ? "text-danger" : "text-ok")}>{s.mesaj}</p>}
-                  {s.mevcut && <p className="mb-2 text-xs text-info">Bu barkod zaten kayıtlı: <b>{s.mevcut.urunAdi}</b> {s.mevcut.renk}/{s.mevcut.beden}. Kaydedince adet bu ürünün stoğuna eklenir.</p>}
+                  {s.mevcut && <p className="mb-2 text-xs text-info">Bu barkod zaten kayıtlı: <b>{s.mevcut.urunAdi}</b> {s.mevcut.renk}/{s.mevcut.beden}. Kaydedince adet bu ürünün stoğuna eklenir. Satış fiyatını değiştirirseniz ürünün fiyatı güncellenir.</p>}
                   {s.uyarilar.map((u) => <p key={u} className="mb-2 flex items-start gap-1.5 text-xs text-warn"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />{u}</p>)}
                   {(s.durum !== "sirada" && s.durum !== "analiz") && (
                     <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-5">
@@ -230,7 +238,7 @@ export function TopluGiris({ aiHazir }: { aiHazir: boolean }) {
                       <Alan e="Beden" d={s.mevcut ? s.mevcut.beden : s.beden} kilit={kilitli || !!s.mevcut} yildiz f={(v) => guncelle(s.id, { beden: v })} />
                       <Alan e="Adet" d={s.adet} kilit={kilitli} yildiz mod="numeric" f={(v) => guncelle(s.id, { adet: v })} />
                       <Alan e="Alış ₺" d={s.alis} kilit={kilitli} yildiz mod="decimal" f={(v) => guncelle(s.id, { alis: v })} />
-                      <Alan e="Satış ₺" d={s.mevcut ? "—" : s.satis} kilit={kilitli || !!s.mevcut} yildiz mod="decimal" f={(v) => guncelle(s.id, { satis: v })} />
+                      <Alan e="Satış ₺" d={s.satis} kilit={kilitli} yildiz={!s.mevcut} mod="decimal" f={(v) => guncelle(s.id, { satis: v })} />
                       <Alan e="Barkod" d={s.barkod} kilit={kilitli || !!s.mevcut} ipucu="Boşsa sistem üretir" mod="numeric" f={(v) => guncelle(s.id, { barkod: v })} />
                     </div>
                   )}

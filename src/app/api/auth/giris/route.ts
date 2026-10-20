@@ -8,7 +8,7 @@ import { denetle } from "@/lib/denetim";
 const sema = z.object({
   email: z.string().trim().toLowerCase().email("Geçerli bir e-posta girin").max(200),
   sifre: z.string().min(1, "Şifre gerekli").max(128),
-  benihatirla: z.boolean().optional().default(false),
+  benihatirla: z.boolean().optional().default(true),
 });
 
 // Kullanici yokken de ayni sure harcansin (kullanici sayimi/zamanlama saldirisi)

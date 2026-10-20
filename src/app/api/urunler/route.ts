@@ -35,8 +35,14 @@ export const POST = handler({ roller: ["SUPER_ADMIN", "SUBE_MUDURU"], sema }, as
   const kodlar = varyantlar.map((v) => v.barkod).filter((k): k is string => !!k);
   const kayitli = kodlar.length ? await prisma.varyant.findMany({ where: { barkod: { in: kodlar } }, include: { urun: true } }) : [];
   const kayitliHarita = new Map(kayitli.map((v) => [v.barkod, v]));
-  const mevcutlar = varyantlar.filter((v) => v.barkod && kayitliHarita.has(v.barkod));
-  const yeniler = varyantlar.filter((v) => !(v.barkod && kayitliHarita.has(v.barkod)));
+  // Yalnızca renk/beden de AYNIYSA aynı varyanttır. Barkod kayıtlı ama renk/beden farklıysa (aynı barkod birden çok
+  // renge basılmış olabilir) veri birleştirilmez: ayrı varyant açılır ve sistem barkodu verilir.
+  const uyumlu = (v: (typeof varyantlar)[number]) => {
+    const k = v.barkod ? kayitliHarita.get(v.barkod) : undefined;
+    return !!k && k.renk.toLowerCase() === v.renk.toLowerCase() && k.beden.toLowerCase() === v.beden.toLowerCase();
+  };
+  const mevcutlar = varyantlar.filter(uyumlu);
+  const yeniler = varyantlar.filter((v) => !uyumlu(v)).map((v) => (v.barkod && kayitliHarita.has(v.barkod) ? { ...v, barkod: undefined } : v));
   const stokluMevcut = mevcutlar.filter((v) => v.adet > 0);
   if (stokluMevcut.length) {
     await malKabul({ subeId, tedarikciAd: govde.tedarikciAd, notlar: "Ürün girişi (mevcut barkod)", kalemler: stokluMevcut.map((v) => ({ varyantId: kayitliHarita.get(v.barkod!)!.id, adet: v.adet, birimMaliyet: v.alisFiyati })) }, kullanici);

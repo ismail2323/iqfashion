@@ -8,6 +8,7 @@ import { paraFormat, sayiFormat } from "@/lib/para";
 import { Baslik, BosDurum, Kart, Rozet } from "@/components/ui";
 import { UrunGorseli } from "@/components/UrunGorseli";
 import { cn } from "@/lib/cn";
+import { renkHex } from "@/lib/giyim";
 
 export const metadata = { title: "Ürünler" };
 const SAYFA = 24;
@@ -49,7 +50,7 @@ export default async function UrunlerSayfasi({ searchParams }: { searchParams: P
     const stok = u.varyantlar.reduce((t, v) => t + v.stoklar.reduce((a, s) => a + s.miktar, 0), 0);
     const dusuk = u.varyantlar.filter((v) => v.stoklar.reduce((a, s) => a + s.miktar, 0) <= v.minStok).length;
     const fiyatlar = u.varyantlar.map((v) => Number(v.satisFiyati));
-    return { u, stok, dusuk, min: Math.min(...fiyatlar), max: Math.max(...fiyatlar) };
+    return { u, stok, dusuk, min: Math.min(...fiyatlar), max: Math.max(...fiyatlar), renkler: [...new Set(u.varyantlar.map((v) => v.renk))] };
   });
   const toplamSayfa = Math.max(1, Math.ceil(toplam / SAYFA));  const link = (d: Record<string, string | undefined>) => {
     const p = new URLSearchParams();
@@ -79,7 +80,7 @@ export default async function UrunlerSayfasi({ searchParams }: { searchParams: P
         <Kart><BosDurum baslik="Ürün bulunamadı" aciklama={yonetici ? "Filtreleri temizleyin ya da yeni ürün ekleyin." : "Filtreleri temizleyip tekrar deneyin."} aksiyon={yonetici ? <Link href="/urunler/yeni" className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-foreground px-4 text-sm font-medium text-background"><PackagePlus className="size-4" /> Ürün ekle</Link> : undefined} /></Kart>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {gorunen.map(({ u, stok, dusuk, min, max }) => (
+          {gorunen.map(({ u, stok, dusuk, min, max, renkler }) => (
             <Link key={u.id} href={`/urunler/${u.id}`} className="anim-yukari group overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--shadow)] transition hover:border-accent hover:shadow-lg">
               <div className="relative aspect-[4/5] overflow-hidden bg-surface-2">
                 <UrunGorseli src={u.gorselUrl} ad={u.ad} marka={u.marka?.ad} className="size-full transition duration-500 group-hover:scale-105" />
@@ -92,7 +93,7 @@ export default async function UrunlerSayfasi({ searchParams }: { searchParams: P
                   <p className="tabular text-base font-semibold">{min === max ? paraFormat(min) : `${paraFormat(min)} – ${paraFormat(max)}`}</p>
                   <Rozet ton={stok === 0 ? "tehlike" : dusuk > 0 ? "uyari" : "ok"}>{stok === 0 ? "Tükendi" : `${sayiFormat(stok)} adet`}</Rozet>
                 </div>
-                <p className="mt-1 text-xs text-muted">{u.varyantlar.length} varyant</p>
+                <div className="mt-1.5 flex items-center gap-1.5 text-xs text-muted"><span className="flex -space-x-1">{renkler.slice(0, 7).map((r) => <span key={r} title={r} className="size-4 rounded-full border border-black/20 ring-2 ring-surface" style={{ background: renkHex(r) }} />)}</span><span className="truncate">{renkler.length} renk · {u.varyantlar.length} varyant</span></div>
               </div>
             </Link>
           ))}

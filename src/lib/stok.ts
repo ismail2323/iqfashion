@@ -139,7 +139,7 @@ async function benzersizSku(tx: Tx, taban: string): Promise<string> {
 
 // ---------- Mal kabul (alis) ----------
 
-export type AlisKalem = { varyantId: string; adet: number; birimMaliyet: number };
+export type AlisKalem = { varyantId: string; adet: number; birimMaliyet: number; satisFiyati?: number };
 
 /** Stok girisi. Maliyet: tum subelerdeki toplam stok uzerinden agirlikli ortalama. */
 export async function malKabul(
@@ -161,9 +161,12 @@ export async function malKabul(
       const mevcutToplam = (await tx.stok.aggregate({ where: { varyantId: v.id }, _sum: { miktar: true } }))._sum.miktar ?? 0;
       const eskiKurus = kurusa(v.alisFiyati);
       const ortKurus = mevcutToplam > 0 ? Math.round((mevcutToplam * eskiKurus + k.adet * yeniKurus) / (mevcutToplam + k.adet)) : yeniKurus;
-      if (ortKurus !== eskiKurus) {
-        await tx.varyant.update({ where: { id: v.id }, data: { alisFiyati: dec(ortKurus) } });
-        await tx.fiyatGecmisi.create({ data: { varyantId: v.id, alis: dec(ortKurus), satis: v.satisFiyati.toString(), kullaniciId: aktor.id } });
+      // Mal kabulde SATIŞ fiyatı da güncellenebilir (yeni sezon/zamlı alış). Verilmezse mevcut satış fiyatı korunur.
+      const eskiSatis = kurusa(v.satisFiyati);
+      const yeniSatis = k.satisFiyati !== undefined && k.satisFiyati > 0 ? kurusa(k.satisFiyati) : eskiSatis;
+      if (ortKurus !== eskiKurus || yeniSatis !== eskiSatis) {
+        await tx.varyant.update({ where: { id: v.id }, data: { alisFiyati: dec(ortKurus), satisFiyati: dec(yeniSatis) } });
+        await tx.fiyatGecmisi.create({ data: { varyantId: v.id, alis: dec(ortKurus), satis: dec(yeniSatis), kullaniciId: aktor.id } });
       }
       await stokArtir(tx, v.id, girdi.subeId, k.adet);
       await tx.alisKalemi.create({

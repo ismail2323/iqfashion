@@ -83,6 +83,19 @@ export async function kullaniciGuncelle(id: string, aktorId: string, g: { ad?: s
   return guncel;
 }
 
+/**
+ * Kullanıcıyı KALICI siler. Geçmiş kayıtlar (satış, hareket, denetim) kullanıcı adını kendi içinde (snapshot) taşıdığı için bozulmaz.
+ * Kendini ve sistemdeki son aktif süper admini silemez. Geçici engelleme için "pasife al" kullanılır.
+ */
+export async function kullaniciSil(id: string, aktorId: string) {
+  const k = await prisma.kullanici.findUnique({ where: { id } });
+  if (!k) throw new IsHatasi("Kullanıcı bulunamadı", 404);
+  if (id === aktorId) throw new IsHatasi("Kendi hesabınızı silemezsiniz", 409);
+  if (k.rol === "SUPER_ADMIN") await sonSuperAdminKorumasi(id);
+  await prisma.kullanici.delete({ where: { id } }); // oturumlar (onDelete: Cascade) ile birlikte gider
+  return k;
+}
+
 export async function sifreSifirla(id: string): Promise<HesapBilgisi> {
   const k = await prisma.kullanici.findUnique({ where: { id } });
   if (!k) throw new IsHatasi("Kullanıcı bulunamadı", 404);
@@ -120,4 +133,39 @@ export async function subeSil(id: string) {
   if (h || st || sat) throw new IsHatasi("Bu şubenin stok/satış geçmişi var, silinemez. Bunun yerine pasife alın.", 409);
   if (k) throw new IsHatasi("Önce şubenin kullanıcılarını silin veya başka şubeye taşıyın", 409);
   await prisma.sube.delete({ where: { id } });
+}
+
+/** Şubenin silinmeden önce gösterilecek kapsamı */
+export async function subeOzeti(id: string) {
+  const [satis, alis, hareket, transfer, gider, kullanici, stok] = await Promise.all([
+    prisma.satis.count({ where: { subeId: id } }),
+    prisma.alisBelgesi.count({ where: { subeId: id } }),
+    prisma.stokHareketi.count({ where: { subeId: id } }),
+    prisma.transfer.count({ where: { OR: [{ kaynakSubeId: id }, { hedefSubeId: id }] } }),
+    prisma.kasaKaydi.count({ where: { subeId: id } }),
+    prisma.kullanici.count({ where: { subeId: id } }),
+    prisma.stok.aggregate({ where: { subeId: id }, _sum: { miktar: true } }),
+  ]);
+  return { satis, alis, hareket, transfer, gider, kullanici, stokAdedi: stok._sum.miktar ?? 0 };
+}
+
+/**
+ * Şubeyi GEÇMİŞİYLE BİRLİKTE kalıcı siler (stok, satış, alış, transfer, gider, hareket ve şubenin kullanıcıları).
+ * Ana (Merkez) şube silinemez. Çağıran, yıkıcı işlem onayını (yazılı onay + şifre) ayrıca doğrulamış olmalıdır.
+ */
+export async function subeTamSil(id: string) {
+  const s = await prisma.sube.findUnique({ where: { id } });
+  if (!s) throw new IsHatasi("Şube bulunamadı", 404);
+  if (id === (await anaSubeId())) throw new IsHatasi("Ana (Merkez) şube silinemez", 409);
+  await prisma.$transaction(async (tx) => {
+    await tx.transfer.deleteMany({ where: { OR: [{ kaynakSubeId: id }, { hedefSubeId: id }] } }); // kalemleri cascade
+    await tx.stokHareketi.deleteMany({ where: { subeId: id } });
+    await tx.stok.deleteMany({ where: { subeId: id } });
+    await tx.satis.deleteMany({ where: { subeId: id } }); // kalemleri cascade
+    await tx.alisBelgesi.deleteMany({ where: { subeId: id } }); // kalemleri cascade
+    await tx.kasaKaydi.deleteMany({ where: { subeId: id } });
+    await tx.kullanici.deleteMany({ where: { subeId: id } }); // oturumları cascade
+    await tx.sube.delete({ where: { id } });
+  });
+  return s;
 }

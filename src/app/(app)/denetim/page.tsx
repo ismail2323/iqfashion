@@ -8,13 +8,13 @@ export const metadata = { title: "Denetim Kaydı" };
 const SAYFA = 50;
 
 const AD: Record<string, string> = {
-  giris: "Giriş yaptı", "ilk-kurulum": "İlk kurulum", "sube-olustur": "Şube oluşturdu", "sube-guncelle": "Şube güncelledi", "sube-aktif": "Şubeyi aktif etti", "sube-pasif": "Şubeyi pasife aldı", "sube-sil": "Şube sildi",
-  "kullanici-olustur": "Kullanıcı oluşturdu", "kullanici-guncelle": "Kullanıcı güncelledi", "sifre-sifirla": "Şifre sıfırladı", "sifre-degistir": "Şifre değiştirdi", "oturumlari-kapat": "Oturumları kapattı",
+  giris: "Giriş yaptı", "ilk-kurulum": "İlk kurulum", "sube-olustur": "Şube oluşturdu", "sube-guncelle": "Şube güncelledi", "sube-aktif": "Şubeyi aktif etti", "sube-pasif": "Şubeyi pasife aldı", "sube-sil": "Şube sildi", "sube-tam-sil": "Şubeyi geçmişiyle birlikte sildi",
+  "kullanici-olustur": "Kullanıcı oluşturdu", "kullanici-sil": "Kullanıcı sildi", "kullanici-guncelle": "Kullanıcı güncelledi", "sifre-sifirla": "Şifre sıfırladı", "sifre-degistir": "Şifre değiştirdi", "oturumlari-kapat": "Oturumları kapattı",
   "urun-olustur": "Ürün ekledi", "urun-guncelle": "Ürün güncelledi", "varyant-guncelle": "Fiyat/varyant güncelledi", "toplu-urun-girisi": "Toplu ürün girişi", "satis-iptal": "Satış iptal etti", "satis-iade": "İade aldı",
   "kasa-kaydi": "Gelir/gider kaydetti", "kasa-sil": "Gelir/gider sildi", "transfer-gonder": "Transfer gönderdi", "transfer-teslim": "Transfer teslim aldı", "transfer-iptal": "Transfer iptal etti",
   "istatistik-sifirla": "İstatistikleri sıfırladı", "istatistik-geri-al": "Sıfırlamayı geri aldı", "fabrika-sifirla": "FABRİKA AYARLARINA DÖNDÜ", "yedek-indir": "Yedek indirdi", "ayar-guncelle": "Ayar değiştirdi",
 };
-const TEHLIKELI = new Set(["fabrika-sifirla", "istatistik-sifirla", "sube-sil", "satis-iptal", "kasa-sil", "sube-pasif"]);
+const TEHLIKELI = new Set(["fabrika-sifirla", "istatistik-sifirla", "sube-sil", "sube-tam-sil", "kullanici-sil", "satis-iptal", "kasa-sil", "sube-pasif"]);
 
 export default async function DenetimSayfasi({ searchParams }: { searchParams: Promise<{ q?: string; sayfa?: string }> }) {
   await sayfaBaglami("SUPER_ADMIN");

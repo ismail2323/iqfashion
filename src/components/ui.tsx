@@ -123,17 +123,22 @@ export function BosDurum({ ikon, baslik, aciklama, aksiyon }: { ikon?: ReactNode
 
 export function Modal({ acik, kapat, baslik, children, genis }: { acik: boolean; kapat: () => void; baslik: string; children: ReactNode; genis?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
+  // `kapat` çoğu zaman her çizimde yeni bir fonksiyondur. Efekti ona bağlarsak, formdaki HER tuş vuruşunda efekt yeniden çalışır
+  // ve odak pencereye geri alınır (klavye kapanır / yazı kesilir). Bu yüzden ref'te tutulur; efekt yalnızca açılış/kapanışta çalışır.
+  const kapatRef = useRef(kapat);
+  kapatRef.current = kapat;
   useEffect(() => {
     if (!acik) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && kapat();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && kapatRef.current();
     document.addEventListener("keydown", onKey);
     document.body.style.overflow = "hidden";
-    ref.current?.focus();
+    // Odağı yalnızca pencere ilk açıldığında al; içinde zaten odaklı bir alan (autoFocus) varsa dokunma
+    if (!ref.current?.contains(document.activeElement)) ref.current?.focus();
     return () => {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = "";
     };
-  }, [acik, kapat]);
+  }, [acik]);
   if (!acik) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center sm:p-4" onMouseDown={(e) => e.target === e.currentTarget && kapat()}>

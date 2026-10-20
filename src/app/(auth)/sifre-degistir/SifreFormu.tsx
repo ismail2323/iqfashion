@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Eye, EyeOff, Lock, ShieldCheck } from "lucide-react";
+import { Check, Eye, EyeOff, Lock, LogOut, ShieldCheck } from "lucide-react";
 import { Buton, Girdi, Logo, cn } from "@/components/ui";
 import { TemaDegistirici } from "@/components/TemaDegistirici";
 import { api } from "@/lib/istemci";
@@ -22,6 +22,13 @@ export function SifreFormu({ ad, hedef }: { ad: string; hedef: string }) {
     { ok: yeni.length > 0 && yeni !== mevcut, et: "Geçici şifreden farklı olsun" },
   ];
   const hazir = kurallar.every((k) => k.ok) && mevcut.length > 0;
+
+  async function cikis() {
+    // Zorunlu şifre ekranında KİLİTLİ KALINMASIN: geçici şifre bilinmiyorsa veya başka hesapla girilecekse çıkılabilir
+    await fetch("/api/auth/cikis", { method: "POST" }).catch(() => {});
+    router.replace("/giris");
+    router.refresh();
+  }
 
   async function gonder(e: React.FormEvent) {
     e.preventDefault();
@@ -60,7 +67,16 @@ export function SifreFormu({ ad, hedef }: { ad: string; hedef: string }) {
             </ul>
             {hata && <div role="alert" className="rounded-xl border border-danger/30 bg-danger-soft px-4 py-3 text-sm text-danger">{hata}</div>}
             <Buton type="submit" yukleniyor={yukleniyor} disabled={!hazir} className="w-full">Şifremi kaydet ve devam et</Buton>
+            {!hazir && !yukleniyor && (
+              <p className="text-center text-xs text-muted">
+                {mevcut.length === 0 ? "Size iletilen geçici şifreyi yazın. " : ""}{kurallar.filter((k) => !k.ok).map((k) => k.et).join(" · ")}
+              </p>
+            )}
           </form>
+          <button type="button" onClick={cikis} className="mx-auto mt-4 flex min-h-11 items-center gap-2 text-sm text-muted underline-offset-4 hover:text-foreground hover:underline">
+            <LogOut className="size-4" /> Çıkış yap / başka hesapla giriş yap
+          </button>
+          <p className="mt-1 text-center text-xs text-muted">Geçici şifreyi bilmiyorsanız yöneticinizden yeni şifre isteyin.</p>
         </div>
       </div>
     </main>

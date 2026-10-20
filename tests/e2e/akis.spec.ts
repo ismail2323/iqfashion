@@ -214,10 +214,10 @@ test("5b. BARKOD KURALI (tek ürün): kayıtlı barkod hata vermez, mevcut varya
   await m.goto("/urunler/yeni");
   await m.getByRole("button", { name: /Tek ürün/ }).click();
   await m.getByLabel("Ürün adı *").fill("Tamamen Başka Ad");
-  await m.getByRole("button", { name: "Beyaz", exact: true }).click();
+  await m.getByRole("button", { name: "Açık Mavi", exact: true }).click(); // barkodun kayıtlı olduğu varyantla AYNI renk/beden
   await m.getByPlaceholder("Beden ekle").fill("30");
   await m.getByRole("button", { name: "Bedeni ekle" }).click();
-  await m.getByLabel("Beyaz 30 adet").fill("5");
+  await m.getByLabel("Açık Mavi 30 adet").fill("5");
   await m.getByText("Varyant barkodları").click();
   await m.getByPlaceholder("otomatik").first().fill(BARKOD_OZEL);
   await m.getByLabel("Alış fiyatı (₺) *").fill("900");

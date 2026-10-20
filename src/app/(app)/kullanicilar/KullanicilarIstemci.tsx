@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, KeyRound, LogOut, Minus, Pencil, Plus, Power, Search, ShieldCheck, UserPlus } from "lucide-react";
+import { Check, KeyRound, LogOut, Minus, Pencil, Plus, Power, Search, ShieldCheck, Trash2, UserPlus } from "lucide-react";
 import { Alan, BosDurum, Buton, Girdi, Iskelet, Kart, Modal, Rozet, Secim } from "@/components/ui";
 import { HesapKarti } from "@/components/HesapKarti";
 import { OnayModal } from "@/components/OnayModal";
@@ -27,6 +27,7 @@ export function KullanicilarIstemci({ benimId }: { benimId: string }) {
   const [sifirlanacak, setSifirlanacak] = useState<K | null>(null);
   const [hesap, setHesap] = useState<Hesap | null>(null);
   const [pasifle, setPasifle] = useState<K | null>(null);
+  const [silinecek, setSilinecek] = useState<K | null>(null);
 
   const yukle = useCallback(async () => {
     try {
@@ -101,6 +102,9 @@ export function KullanicilarIstemci({ benimId }: { benimId: string }) {
                 {k.id !== benimId && (
                   <Buton kucuk varyant="hayalet" onClick={() => (k.aktif ? setPasifle(k) : void durum(k, true))}><Power className="size-4" /> {k.aktif ? "Pasife al" : "Aktif et"}</Buton>
                 )}
+                {k.id !== benimId && (
+                  <Buton kucuk varyant="hayalet" className="text-danger" onClick={() => setSilinecek(k)} aria-label={`${k.ad} hesabını sil`}><Trash2 className="size-4" /> Sil</Buton>
+                )}
               </div>
             </Kart>
           ))}
@@ -123,6 +127,11 @@ export function KullanicilarIstemci({ benimId }: { benimId: string }) {
       <OnayModal acik={!!pasifle} kapat={() => setPasifle(null)} baslik="Hesabı pasife al" onayMetni="Pasife al" tehlikeli
         mesaj={<>“{pasifle?.ad}” artık giriş yapamaz ve açık oturumları hemen kapanır. Geçmiş kayıtları korunur; istediğiniz zaman tekrar aktif edebilirsiniz.</>}
         calistir={async () => { if (pasifle) await durum(pasifle, false); }} />
+      <OnayModal acik={!!silinecek} kapat={() => setSilinecek(null)} baslik="Kullanıcıyı sil" onayMetni="Kalıcı sil" tehlikeli
+        mesaj={<>“{silinecek?.ad}” ({silinecek?.email}) hesabı <b>kalıcı olarak silinecek</b> ve bir daha giriş yapamayacak. Geçmiş satış ve hareket kayıtlarında adı kalır. Geçici olarak engellemek istiyorsanız “Pasife al”ı kullanın.</>}
+        calistir={async () => {
+          try { await api(`/api/kullanicilar/${silinecek!.id}`, { method: "DELETE" }); bildir("Kullanıcı silindi"); await yukle(); } catch (e) { bildir((e as Error).message, "hata"); throw e; }
+        }} />
       <Modal acik={!!hesap} kapat={() => setHesap(null)} baslik="Giriş bilgileri">
         {hesap && <div className="space-y-4"><HesapKarti ad={hesap.ad} email={hesap.email} sifre={hesap.sifre} /><div className="flex justify-end"><Buton onClick={() => setHesap(null)}>Tamam</Buton></div></div>}
       </Modal>

@@ -8,6 +8,7 @@ import { ROL_ADI } from "@/lib/rbac";
 import { MENU, type MenuOgesi } from "@/lib/menu";
 import { Logo, Modal, Secim, cn } from "@/components/ui";
 import { TemaDegistirici } from "@/components/TemaDegistirici";
+import { CanliYenile } from "@/components/CanliYenile";
 
 type Props = {
   kullanici: Oturumlu;
@@ -65,6 +66,7 @@ export function AppShell({ kullanici, subeler, seciliSube, subeAdi, kritik, chil
 
   return (
     <div className="min-h-dvh lg:grid lg:grid-cols-[16rem_1fr]">
+      <CanliYenile />
       {/* Masaustu kenar cubugu */}
       <aside className="sticky top-0 hidden h-dvh flex-col border-r border-border bg-surface lg:flex">
         <div className="border-b border-border px-5 py-5"><Logo className="h-12" /></div>

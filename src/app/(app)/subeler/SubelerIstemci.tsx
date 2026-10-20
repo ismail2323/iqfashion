@@ -79,7 +79,7 @@ export function SubelerIstemci() {
                 {s.aktif && <Buton kucuk onClick={() => panelineGec(s)}><ExternalLink className="size-4" /> Paneline geç</Buton>}
                 <Buton kucuk varyant="ikincil" onClick={() => setDuzenle(s)}><Pencil className="size-4" /> Düzenle</Buton>
                 {!s.ana && <Buton kucuk varyant="hayalet" onClick={() => (s.aktif ? setPasifle(s) : void durumDegistir(s, true))} aria-label={s.aktif ? "Pasife al" : "Aktif et"}><Power className="size-4" /> {s.aktif ? "Pasife al" : "Aktif et"}</Buton>}
-                {!s.ana && <Buton kucuk varyant="hayalet" className="text-danger" onClick={() => setSilinecek(s)} aria-label="Sil"><Trash2 className="size-4" /></Buton>}
+                {!s.ana && <Buton kucuk varyant="hayalet" className="text-danger" onClick={() => setSilinecek(s)}><Trash2 className="size-4" /> Sil</Buton>}
               </div>
             </Kart>
           ))}
@@ -101,15 +101,7 @@ export function SubelerIstemci() {
       <OnayModal acik={!!pasifle} kapat={() => setPasifle(null)} baslik="Şubeyi pasife al" onayMetni="Pasife al" tehlikeli
         mesaj={<>“{pasifle?.ad}” pasife alınırsa bu şubenin tüm kullanıcılarının oturumu hemen kapanır ve giriş yapamazlar. Stok ve geçmiş korunur; istediğiniz zaman tekrar aktif edebilirsiniz.</>}
         calistir={async () => { if (pasifle) await durumDegistir(pasifle, false); }} />
-      <OnayModal acik={!!silinecek} kapat={() => setSilinecek(null)} baslik="Şubeyi sil" onayMetni="Kalıcı sil" tehlikeli
-        mesaj={<>“{silinecek?.ad}” kalıcı olarak silinecek. Stok veya satış geçmişi olan şubeler silinemez; onları pasife alın.</>}
-        calistir={async () => {
-          try {
-            await api(`/api/subeler/${silinecek!.id}`, { method: "DELETE" });
-            bildir("Şube silindi");
-            await yukle();
-          } catch (e) { bildir((e as Error).message, "hata"); throw e; }
-        }} />
+      <SubeSilModal sube={silinecek} kapat={() => setSilinecek(null)} bitti={async () => { bildir("Şube silindi"); await yukle(); }} />
     </div>
   );
 
@@ -120,6 +112,64 @@ export function SubelerIstemci() {
       await yukle();
     } catch (e) { bildir((e as Error).message, "hata"); throw e; }
   }
+}
+
+type Ozet = { satis: number; alis: number; hareket: number; transfer: number; gider: number; kullanici: number; stokAdedi: number };
+
+/** Şube silme: önce içindekileri gösterir; geçmişi olan şube ancak yazılı onay + şifreyle, geçmişiyle birlikte silinir. */
+function SubeSilModal({ sube, kapat, bitti }: { sube: Sube | null; kapat: () => void; bitti: () => Promise<void> }) {
+  const [ozet, setOzet] = useState<Ozet | null>(null);
+  const [onay, setOnay] = useState("");
+  const [sifre, setSifre] = useState("");
+  const [hata, setHata] = useState<string | null>(null);
+  const [yukleniyor, setYukleniyor] = useState(false);
+  const id = sube?.id;
+  useEffect(() => {
+    setOzet(null); setOnay(""); setSifre(""); setHata(null);
+    if (!id) return;
+    let iptal = false;
+    api<Ozet>(`/api/subeler/${id}/ozet`).then((o) => { if (!iptal) setOzet(o); }).catch((e) => { if (!iptal) setHata((e as Error).message); });
+    return () => { iptal = true; };
+  }, [id]);
+  if (!sube) return null;
+  const bos = !!ozet && ozet.satis + ozet.alis + ozet.hareket + ozet.transfer + ozet.gider + ozet.kullanici + ozet.stokAdedi === 0;
+
+  async function sil() {
+    setYukleniyor(true); setHata(null);
+    try {
+      if (bos) await api(`/api/subeler/${sube!.id}`, { method: "DELETE" });
+      else await api(`/api/subeler/${sube!.id}/tam-sil`, { govde: { anladim: true, onay, sifre } });
+      kapat();
+      await bitti();
+    } catch (e) { setHata((e as Error).message); } finally { setYukleniyor(false); }
+  }
+
+  return (
+    <Modal acik={!!sube} kapat={kapat} baslik="Şubeyi sil">
+      <div className="space-y-4 text-sm">
+        {!ozet && !hata && <Iskelet className="h-24" />}
+        {ozet && bos && <p className="text-muted">“{sube.ad}” boş bir şube (stok, satış, hesap yok). Silinebilir.</p>}
+        {ozet && !bos && (
+          <>
+            <p className="text-muted">“{sube.ad}” şubesinin geçmişi var. Silerseniz <b className="text-foreground">geri alınamaz</b> şekilde şunlar da silinir:</p>
+            <ul className="grid grid-cols-2 gap-2 text-center">
+              {([["Satış", ozet.satis], ["Alış belgesi", ozet.alis], ["Stok (adet)", ozet.stokAdedi], ["Transfer", ozet.transfer], ["Gelir/gider", ozet.gider], ["Kullanıcı hesabı", ozet.kullanici]] as const).map(([e, d]) => (
+                <li key={e} className="rounded-xl bg-surface-2 px-3 py-2"><b className="tabular block text-base">{d}</b><span className="text-xs text-muted">{e}</span></li>
+              ))}
+            </ul>
+            <p className="text-xs text-muted">Geçmişi korumak istiyorsanız silmek yerine <b>Pasife alın</b>.</p>
+            <Alan etiket={`Onay için şubenin adını yazın: ${sube.ad}`}><Girdi value={onay} onChange={(e) => setOnay(e.target.value)} autoComplete="off" /></Alan>
+            <Alan etiket="Şifreniz"><Girdi type="password" value={sifre} onChange={(e) => setSifre(e.target.value)} autoComplete="current-password" /></Alan>
+          </>
+        )}
+        {hata && <p role="alert" className="rounded-xl bg-danger-soft px-3 py-2 text-danger">{hata}</p>}
+        <div className="flex justify-end gap-2">
+          <Buton varyant="ikincil" onClick={kapat}>Vazgeç</Buton>
+          <Buton varyant="tehlike" yukleniyor={yukleniyor} disabled={!ozet || (!bos && (!onay || !sifre))} onClick={sil}>{bos ? "Sil" : "Geçmişiyle birlikte kalıcı sil"}</Buton>
+        </div>
+      </div>
+    </Modal>
+  );
 }
 
 function Mini({ et, de, alt }: { et: string; de: string; alt: string }) {

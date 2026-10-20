@@ -9,7 +9,9 @@ import { normalBeden, normalRenk } from "./giyim";
 
 export type Gorsel = { mime: string; base64: string };
 
-const ZAMAN_ASIMI_MS = 40_000;
+// Groq normalde ~1 sn'de yanıt verir; takılan bir isteği 15 sn'de bırakıp diğer anahtara/sağlayıcıya geç (eskiden 40 sn x 2 anahtar = 80 sn bekleyen satırlar vardı)
+const ZAMAN_ASIMI_MS = 15_000;
+const GEMINI_ZAMAN_ASIMI_MS = 30_000;
 const YENIDEN_DENENIR = new Set([401, 403, 404, 408, 413, 429, 500, 502, 503, 504]);
 
 type FetchFn = typeof fetch;
@@ -30,9 +32,9 @@ export function aiHazirMi(): boolean {
 }
 
 // ---------- Ham çağrılar ----------
-async function zamanAsimliFetch(f: FetchFn, url: string, init: RequestInit): Promise<Response> {
+async function zamanAsimliFetch(f: FetchFn, url: string, init: RequestInit, sure = ZAMAN_ASIMI_MS): Promise<Response> {
   const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), ZAMAN_ASIMI_MS);
+  const t = setTimeout(() => ac.abort(), sure);
   try {
     return await f(url, { ...init, signal: ac.signal });
   } finally {
@@ -210,7 +212,7 @@ const gorselHash = (g: Gorsel) => createHash("sha256").update(g.base64).digest("
 async function hizSiniri(kullaniciId?: string) {
   if (!kullaniciId) return;
   const sayi = await prisma.aiKullanim.count({ where: { kullaniciId, createdAt: { gt: new Date(Date.now() - 60_000) } } });
-  if (sayi >= 25) throw new IsHatasi("Çok hızlı istek gönderiyorsunuz. Bir dakika bekleyip tekrar deneyin.", 429);
+  if (sayi >= 45) throw new IsHatasi("Çok hızlı istek gönderiyorsunuz. Bir dakika bekleyip tekrar deneyin.", 429);
 }
 
 async function calistir<T>(gorev: string, g: Gorsel, istem: string, donustur: (ham: unknown) => T, o: AiSecenek): Promise<T & { onbellek?: boolean }> {

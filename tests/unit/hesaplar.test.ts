@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/db";
-import { anaSubeId, kullaniciGuncelle, kullaniciOlustur, subeGuncelle, subeOlustur, subeSil } from "@/lib/hesaplar";
+import { anaSubeId, kullaniciGuncelle, kullaniciOlustur, kullaniciSil, subeGuncelle, subeOlustur, subeSil, subeOzeti, subeTamSil } from "@/lib/hesaplar";
 import { kur, temizle } from "./yardimci";
 
 let t: Awaited<ReturnType<typeof kur>>;
@@ -24,6 +24,17 @@ describe("ana (Merkez) şube koruması", () => {
   });
 });
 
+describe("şubeyi geçmişiyle silme", () => {
+  it("özet kapsamı gösterir; tam silme şubeyi ve hesaplarını siler, ana şubeyi silmez", async () => {
+    const { sube, hesap } = await subeOlustur({ ad: "Geçici Şube", mudur: { ad: "Geçici Müdür", email: "gecici@test.com" } });
+    expect((await subeOzeti(sube.id)).kullanici).toBe(1);
+    await expect(subeTamSil(t.a.id)).rejects.toThrow(/Ana \(Merkez\) şube silinemez/);
+    await subeTamSil(sube.id);
+    expect(await prisma.sube.findUnique({ where: { id: sube.id } })).toBeNull();
+    expect(await prisma.kullanici.findUnique({ where: { id: hesap!.id } })).toBeNull();
+  });
+});
+
 describe("hesap yönetimi", () => {
   it("şube + müdür tek adımda; şifre üretilir, ilk girişte değiştirilmesi zorunlu", async () => {
     const { sube, hesap } = await subeOlustur({ ad: "Kadıköy Şubesi", mudur: { ad: "Murat Yıldız", email: "Murat@Test.com" } });
@@ -42,5 +53,24 @@ describe("hesap yönetimi", () => {
     await expect(kullaniciGuncelle(t.admin.id, t.admin.id, { aktif: false })).rejects.toThrow(/Kendi hesabınızı/);
     await expect(kullaniciOlustur({ ad: "Kasiyer", email: "k@t.com", rol: "KASIYER" })).rejects.toThrow(/şube/);
     await expect(kullaniciOlustur({ ad: "Admin2", email: "a2@t.com", rol: "SUPER_ADMIN", subeId: t.a.id })).rejects.toThrow(/şubeye bağlı olamaz/);
+  });
+});
+
+describe("kullanıcı silme", () => {
+  it("başka kullanıcı kalıcı silinir (oturumları ile birlikte); kendini silemez", async () => {
+    await prisma.oturum.create({ data: { kullaniciId: t.mudur.id, tokenHash: "x".repeat(64), expiresAt: new Date(Date.now() + 1e9) } });
+    await kullaniciSil(t.mudur.id, t.admin.id);
+    expect(await prisma.kullanici.findUnique({ where: { id: t.mudur.id } })).toBeNull();
+    expect(await prisma.oturum.count({ where: { kullaniciId: t.mudur.id } })).toBe(0);
+    await expect(kullaniciSil(t.admin.id, t.admin.id)).rejects.toThrow(/Kendi hesabınızı silemezsiniz/);
+    await expect(kullaniciSil("yok-boyle-biri", t.admin.id)).rejects.toThrow(/bulunamadı/);
+  });
+  it("sistemdeki son aktif süper admin silinemez; ikinci süper admin varsa silinebilir", async () => {
+    const admin2 = await kullaniciOlustur({ ad: "Admin Iki", email: "admin2@t.com", rol: "SUPER_ADMIN" });
+    await kullaniciSil(admin2.id, t.admin.id); // iki süper admin vardı: tamam
+    // son süper admini başka bir (pasif) yöneticiyle silmeye çalışmak: korunur
+    const pasif = await kullaniciOlustur({ ad: "Pasif Admin", email: "pasif@t.com", rol: "SUPER_ADMIN" });
+    await prisma.kullanici.update({ where: { id: pasif.id }, data: { aktif: false } });
+    await expect(kullaniciSil(t.admin.id, pasif.id)).rejects.toThrow(/en az bir aktif süper admin/);
   });
 });

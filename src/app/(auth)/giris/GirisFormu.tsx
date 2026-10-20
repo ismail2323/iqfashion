@@ -18,7 +18,7 @@ export function GirisFormu({ kurulum, devam }: { kurulum: boolean; devam: string
   const [sifre, setSifre] = useState("");
   const [tekrar, setTekrar] = useState("");
   const [goster, setGoster] = useState(false);
-  const [hatirla, setHatirla] = useState(false);
+  const [hatirla, setHatirla] = useState(true);
   const [hata, setHata] = useState<string | null>(null);
   const [yukleniyor, setYukleniyor] = useState(false);
 
@@ -107,7 +107,7 @@ export function GirisFormu({ kurulum, devam }: { kurulum: boolean; devam: string
             {!kurulum && (
               <label className="flex cursor-pointer select-none items-center gap-2.5 text-sm">
                 <input type="checkbox" checked={hatirla} onChange={(e) => setHatirla(e.target.checked)} className="size-4 accent-[var(--accent)]" />
-                Beni hatırla (30 gün)
+                Bu cihazda oturumum açık kalsın
               </label>
             )}
 

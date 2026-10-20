@@ -54,8 +54,8 @@ describe("toplu ürün girişi", () => {
   it("BARKOD KURALI: sistemde kayıtlı barkod (istemci işaretlemese bile) mevcut varyanta stok ekler, yeni ürün açmaz", async () => {
     await topluUrunGirisi([satir("1", { barkod: "4006381333931", adet: 2 })], t.a.id, t.mudur);
     const v = await prisma.varyant.findFirstOrThrow({ where: { barkod: "4006381333931" } });
-    // farklı ad/renk/beden yazılmış olsa da aynı barkod = aynı varyant
-    const r = await topluUrunGirisi([satir("2", { ad: "Tamamen Farklı Ad", beden: "XL", barkod: "4006381333931", adet: 3 }), satir("3", { ad: "Üçüncü" })], t.a.id, t.mudur);
+    // ad farklı yazılmış olsa da barkod + renk + beden aynıysa = aynı varyant
+    const r = await topluUrunGirisi([satir("2", { ad: "Tamamen Farklı Ad", barkod: "4006381333931", adet: 3 }), satir("3", { ad: "Üçüncü" })], t.a.id, t.mudur);
     expect(r[0]).toMatchObject({ durum: "stok_eklendi" });
     expect(r[1].durum).toBe("yeni");
     expect(await stok(v.id)).toBe(5);
@@ -75,5 +75,41 @@ describe("toplu ürün girişi", () => {
     const kodlar = (await prisma.varyant.findMany()).map((x) => x.barkod);
     expect(kodlar).toContain("4006381333948");
     expect(kodlar.some((k) => /^20\d{11}$/.test(k))).toBe(true);
+  });
+
+  it("AYNI BARKOD FARKLI RENK/BEDEN: veri BİRLEŞMEZ, satır ayrı varyant olur ve sistem barkodu verilir (lacivert mont, siyah montun stoğuna karışmaz)", async () => {
+    await topluUrunGirisi([satir("1", { ad: "Şişme Mont", renk: "Siyah", beden: "L", barkod: "86914253", adet: 5 })], t.a.id, t.mudur);
+    const r = await topluUrunGirisi([satir("2", { ad: "Şişme Mont", renk: "Lacivert", beden: "L", barkod: "86914253", adet: 7 })], t.a.id, t.mudur);
+    expect(r[0].durum).not.toBe("hata");
+    expect(r[0].mesaj).toMatch(/ayrı varyant/);
+    const siyah = await prisma.varyant.findFirstOrThrow({ where: { renk: "Siyah" } });
+    const lacivert = await prisma.varyant.findFirstOrThrow({ where: { renk: "Lacivert" } });
+    expect(siyah.barkod).toBe("86914253");
+    expect(lacivert.barkod).not.toBe("86914253");
+    expect(lacivert.barkod).toMatch(/^20\d{11}$/);
+    expect(await stok(siyah.id)).toBe(5); // siyahın stoğu DEĞİŞMEDİ
+    expect(await stok(lacivert.id)).toBe(7);
+    expect(await prisma.urun.count()).toBe(1); // aynı ürün kartı, iki renk
+  });
+  it("aynı yüklemede aynı barkod farklı renklerde: ilk satır barkodu korur, diğerleri sistem barkodu alır, adetler karışmaz", async () => {
+    const r = await topluUrunGirisi([
+      satir("1", { ad: "Şişme Mont", renk: "Siyah", beden: "M", barkod: "86914253", adet: 2 }),
+      satir("2", { ad: "Şişme Mont", renk: "Lacivert", beden: "M", barkod: "86914253", adet: 3 }),
+      satir("3", { ad: "Şişme Mont", renk: "Siyah", beden: "M", barkod: "86914253", adet: 4 }),
+    ], t.a.id, t.mudur);
+    expect(r.every((x) => x.durum !== "hata")).toBe(true);
+    const v = await prisma.varyant.findMany({ orderBy: { renk: "asc" } });
+    expect(v).toHaveLength(2);
+    expect(await stok(v.find((x) => x.renk === "Siyah")!.id)).toBe(6); // 2 + 4 birleşti
+    expect(await stok(v.find((x) => x.renk === "Lacivert")!.id)).toBe(3);
+  });
+  it("mal kabulde satış fiyatı güncellenir ve fiyat geçmişine yazılır; verilmezse korunur", async () => {
+    await topluUrunGirisi([satir("1", { adet: 2, satisFiyati: 1790 })], t.a.id, t.mudur);
+    const v = await prisma.varyant.findFirstOrThrow();
+    await topluUrunGirisi([satir("2", { varyantId: v.id, adet: 1, alisFiyati: 900, satisFiyati: 2090 })], t.a.id, t.mudur);
+    expect(Number((await prisma.varyant.findUniqueOrThrow({ where: { id: v.id } })).satisFiyati)).toBe(2090);
+    expect(await prisma.fiyatGecmisi.count({ where: { varyantId: v.id } })).toBeGreaterThanOrEqual(2);
+    await topluUrunGirisi([satir("3", { varyantId: v.id, adet: 1, alisFiyati: 900, satisFiyati: 0 })], t.a.id, t.mudur);
+    expect(Number((await prisma.varyant.findUniqueOrThrow({ where: { id: v.id } })).satisFiyati)).toBe(2090);
   });
 });

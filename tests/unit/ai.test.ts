@@ -95,10 +95,10 @@ describe("önbellek ve hız sınırı", () => {
     expect(b.onbellek).toBe(true);
     expect(b.marka).toBe("HUGO BLUE");
   });
-  it("kullanıcı dakikada 25 AI isteğini aşamaz", async () => {
+  it("kullanıcı dakikada 45 AI isteğini aşamaz", async () => {
     const u = await prisma.kullanici.create({ data: { email: "x@x.com", ad: "X", sifreHash: "h", rol: "SUPER_ADMIN" } });
     const f = vi.fn().mockImplementation(async () => groqYanit(ETIKET));
-    for (let i = 0; i < 25; i++) await etiketOku({ mime: "image/jpeg", base64: `QQ${i}A` }, { fetch: f as never, kullaniciId: u.id });
+    for (let i = 0; i < 45; i++) await etiketOku({ mime: "image/jpeg", base64: `QQ${i}A` }, { fetch: f as never, kullaniciId: u.id });
     await expect(etiketOku({ mime: "image/jpeg", base64: "ZZZZ" }, { fetch: f as never, kullaniciId: u.id })).rejects.toThrow(/Çok hızlı/);
   });
   it("barkod okuma geçerliliği sağlama toplamıyla belirler", async () => {

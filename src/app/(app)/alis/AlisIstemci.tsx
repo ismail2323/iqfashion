@@ -10,19 +10,19 @@ import { useToast } from "@/components/Toast";
 import { api } from "@/lib/istemci";
 import { paraFormat } from "@/lib/para";
 
-type Satir = SecilenUrun & { adet: string; maliyet: string };
+type Satir = SecilenUrun & { adet: string; maliyet: string; satis: string };
 const sayi = (s: string) => Number(s.replace(",", "."));
 
 export function AlisIstemci({ baslangic }: { baslangic: SecilenUrun[] }) {
   const router = useRouter();
   const bildir = useToast();
   const katalog = useKatalog();
-  const [satirlar, setSatirlar] = useState<Satir[]>(() => baslangic.map((u) => ({ ...u, adet: "", maliyet: String(u.alisFiyati ?? 0) })));
+  const [satirlar, setSatirlar] = useState<Satir[]>(() => baslangic.map((u) => ({ ...u, adet: "", maliyet: String(u.alisFiyati ?? 0), satis: String(u.satisFiyati) })));
   const [tedarikci, setTedarikci] = useState("");
   const [belgeNo, setBelgeNo] = useState("");
   const [yukleniyor, setYukleniyor] = useState(false);
 
-  const ekle = (u: SecilenUrun) => setSatirlar((l) => (l.some((x) => x.id === u.id) ? l.map((x) => (x.id === u.id ? { ...x, adet: String((Number(x.adet) || 0) + 1) } : x)) : [...l, { ...u, adet: "1", maliyet: String(u.alisFiyati ?? 0) }]));
+  const ekle = (u: SecilenUrun) => setSatirlar((l) => (l.some((x) => x.id === u.id) ? l.map((x) => (x.id === u.id ? { ...x, adet: String((Number(x.adet) || 0) + 1) } : x)) : [...l, { ...u, adet: "1", maliyet: String(u.alisFiyati ?? 0), satis: String(u.satisFiyati) }]));
   const guncelle = (id: string, d: Partial<Satir>) => setSatirlar((l) => l.map((x) => (x.id === id ? { ...x, ...d } : x)));
   const gecerli = satirlar.filter((s) => Number(s.adet) >= 1 && sayi(s.maliyet) >= 0);
   const toplam = gecerli.reduce((t, s) => t + Number(s.adet) * sayi(s.maliyet), 0);
@@ -31,7 +31,7 @@ export function AlisIstemci({ baslangic }: { baslangic: SecilenUrun[] }) {
   async function kaydet() {
     setYukleniyor(true);
     try {
-      await api("/api/alis", { govde: { tedarikciAd: tedarikci || null, belgeNo: belgeNo || null, kalemler: gecerli.map((s) => ({ varyantId: s.id, adet: Number(s.adet), birimMaliyet: sayi(s.maliyet) })) } });
+      await api("/api/alis", { govde: { tedarikciAd: tedarikci || null, belgeNo: belgeNo || null, kalemler: gecerli.map((s) => ({ varyantId: s.id, adet: Number(s.adet), birimMaliyet: sayi(s.maliyet), ...(sayi(s.satis) > 0 ? { satisFiyati: sayi(s.satis) } : {}) })) } });
       bildir(`Mal kabul kaydedildi: ${adetToplam} adet`);
       setSatirlar([]); setTedarikci(""); setBelgeNo("");
       router.refresh();
@@ -56,6 +56,7 @@ export function AlisIstemci({ baslangic }: { baslangic: SecilenUrun[] }) {
               <div className="min-w-40 flex-1"><p className="truncate text-sm font-medium">{s.urunAdi}</p><p className="text-xs text-muted">{s.renk} · {s.beden} · mevcut stok {s.stok}</p></div>
               <label className="text-[11px] text-muted">Adet<Girdi inputMode="numeric" value={s.adet} onChange={(e) => guncelle(s.id, { adet: e.target.value.replace(/\D/g, "") })} className="mt-0.5 min-h-10 w-20 py-1 text-center text-sm" /></label>
               <label className="text-[11px] text-muted">Birim maliyet ₺<Girdi inputMode="decimal" value={s.maliyet} onChange={(e) => guncelle(s.id, { maliyet: e.target.value })} className="mt-0.5 min-h-10 w-28 py-1 text-right text-sm" /></label>
+              <label className="text-[11px] text-muted">Satış fiyatı ₺<Girdi inputMode="decimal" value={s.satis} onChange={(e) => guncelle(s.id, { satis: e.target.value })} className="mt-0.5 min-h-10 w-28 py-1 text-right text-sm" /></label>
               <button onClick={() => setSatirlar((l) => l.filter((x) => x.id !== s.id))} aria-label="Kaldır" className="grid size-9 place-items-center rounded-lg text-muted hover:bg-danger-soft hover:text-danger"><Trash2 className="size-4" /></button>
             </li>
           ))}
@@ -63,7 +64,7 @@ export function AlisIstemci({ baslangic }: { baslangic: SecilenUrun[] }) {
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm"><b>{adetToplam}</b> adet · toplam <b className="tabular">{paraFormat(toplam)}</b><span className="block text-xs text-muted">Ortalama maliyet, mevcut stokla ağırlıklı olarak güncellenir.</span></p>
+        <p className="text-sm"><b>{adetToplam}</b> adet · toplam <b className="tabular">{paraFormat(toplam)}</b><span className="block text-xs text-muted">Ortalama maliyet, mevcut stokla ağırlıklı olarak güncellenir. Satış fiyatını değiştirirseniz o ürünün fiyatı <b>tüm şubelerde</b> güncellenir.</span></p>
         <Buton onClick={kaydet} yukleniyor={yukleniyor} disabled={gecerli.length === 0}><PackageCheck className="size-4" /> Mal kabulü kaydet</Buton>
       </div>
     </Kart>

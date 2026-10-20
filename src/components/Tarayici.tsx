@@ -18,7 +18,9 @@ export function useBarkodDinleyici(onKod: (kod: string) => void, aktif = true) {
     if (!aktif) return;
     const h = (e: KeyboardEvent) => {
       const hedef = e.target as HTMLElement | null;
-      const yaziyor = hedef && (hedef.tagName === "INPUT" || hedef.tagName === "TEXTAREA" || hedef.tagName === "SELECT") && !hedef.dataset.barkod;
+      // Bir alanın içindeyken yazılanı o alan işler (barkod alanının kendi Enter'ı var). Sayfa-geneli dinleyici de çalışırsa
+      // okuyucu odaktaki barkod alanına yazınca ürün İKİ KEZ eklenirdi.
+      const yaziyor = hedef && (hedef.tagName === "INPUT" || hedef.tagName === "TEXTAREA" || hedef.tagName === "SELECT" || hedef.isContentEditable);
       if (yaziyor || e.ctrlKey || e.metaKey || e.altKey) return;
       const simdi = performance.now();
       if (e.key === "Enter") {
