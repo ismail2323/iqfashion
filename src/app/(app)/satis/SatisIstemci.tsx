@@ -12,6 +12,10 @@ import { paraFormat } from "@/lib/para";
 type Urun = { id: string; urunAdi: string; marka: string | null; gorselUrl: string | null; renk: string; beden: string; barkod: string; satisFiyati: number; stok: number };
 type Sepet = Urun & { adet: number; fiyat: number };
 type Odeme = "NAKIT" | "KART" | "HAVALE" | "KARISIK";
+type Kardes = { id: string; beden: string; barkod: string; satisFiyati: number; stok: number };
+/** Beden seçtirme penceresi: tarama sonrası ("hangi beden satıldı?") ya da sepetteki satırın bedenini değiştirme */
+type BedenSecimi = { urunAdi: string; marka: string | null; gorselUrl: string | null; renk: string; kardesler: Kardes[]; degistirId?: string };
+const DAHILI = /^20\d{11}$/;
 type Fis = { no: string; toplam: number; indirim: number; odeme: Odeme; kalemler: Sepet[]; tarih: string };
 
 const ODEME: { k: Odeme; ad: string; ikon: typeof Banknote }[] = [
@@ -30,6 +34,7 @@ export function SatisIstemci({ yonetici, subeAdi, kasiyerAdi }: { yonetici: bool
   const [sepetAcik, setSepetAcik] = useState(false);
   const [gonderiyor, setGonderiyor] = useState(false);
   const [fis, setFis] = useState<Fis | null>(null);
+  const [bedenSecimi, setBedenSecimi] = useState<BedenSecimi | null>(null);
   const sepetRef = useRef(sepet);
   sepetRef.current = sepet;
 
@@ -55,13 +60,50 @@ export function SatisIstemci({ yonetici, subeAdi, kasiyerAdi }: { yonetici: bool
 
   const barkodOkundu = useCallback(async (kod: string) => {
     try {
-      const r = await api<{ bulundu: boolean; varyant?: { id: string; urunAdi: string; marka: string | null; gorselUrl: string | null; renk: string; beden: string; barkod: string; satisFiyati: number; stok: number; aktif: boolean } }>(`/api/barkod/${encodeURIComponent(kod)}`);
+      const r = await api<{ bulundu: boolean; kardesler?: Kardes[]; varyant?: { id: string; urunAdi: string; marka: string | null; gorselUrl: string | null; renk: string; beden: string; barkod: string; satisFiyati: number; stok: number; aktif: boolean } }>(`/api/barkod/${encodeURIComponent(kod)}`);
       if (!r.bulundu || !r.varyant || !r.varyant.aktif) { bip(false); bildir(`Barkod kayıtlı değil: ${kod}`, "hata"); return; }
+      // Üreticinin barkodu çoğu zaman TÜM bedenlerde aynıdır ve sistemde yalnızca bir bedene bağlıdır (diğerlerine sistem barkodu verilmiştir).
+      // Böyle bir barkod okununca hangi bedenin satıldığı SORULUR; yoksa yanlış bedenin stoğu düşerdi.
+      const k = r.kardesler ?? [];
+      if (!DAHILI.test(kod) && k.length > 1 && k.some((x) => DAHILI.test(x.barkod))) {
+        bip(true);
+        setBedenSecimi({ urunAdi: r.varyant.urunAdi, marka: r.varyant.marka, gorselUrl: r.varyant.gorselUrl, renk: r.varyant.renk, kardesler: k });
+        return;
+      }
       ekle({ ...r.varyant, id: r.varyant.id });
     } catch (e) { bip(false); bildir((e as Error).message, "hata"); }
   }, [ekle, bildir]);
 
-  useBarkodDinleyici(barkodOkundu, !fis);
+  useBarkodDinleyici(barkodOkundu, !fis && !bedenSecimi);
+
+  /** Beden penceresinde bir bedene dokunuldu: yeni satır ekler ya da (değiştirme ise) satırı o bedene çevirir */
+  function bedenSec(k: Kardes) {
+    const b = bedenSecimi;
+    if (!b) return;
+    const u: Urun = { id: k.id, urunAdi: b.urunAdi, marka: b.marka, gorselUrl: b.gorselUrl, renk: b.renk, beden: k.beden, barkod: k.barkod, satisFiyati: k.satisFiyati, stok: k.stok };
+    if (b.degistirId) {
+      const eski = sepetRef.current.find((s) => s.id === b.degistirId);
+      if (!eski || eski.id === k.id) { setBedenSecimi(null); return; }
+      if (k.stok <= 0) { bip(false); return bildir(`${k.beden} bedeni tükendi`, "hata"); }
+      const hedef = sepetRef.current.find((s) => s.id === k.id);
+      const adet = Math.min(eski.adet + (hedef?.adet ?? 0), k.stok);
+      const fiyat = eski.fiyat !== eski.satisFiyati ? eski.fiyat : k.satisFiyati; // elle girilen fiyat korunur
+      setSepet((l) => l.filter((s) => s.id !== eski.id && s.id !== k.id).concat({ ...u, adet, fiyat }));
+      if (adet < eski.adet + (hedef?.adet ?? 0)) bildir(`${k.beden} bedeninde en fazla ${k.stok} adet var`, "hata");
+    } else {
+      if (k.stok <= 0) { bip(false); return bildir(`${k.beden} bedeni tükendi`, "hata"); }
+      ekle(u);
+    }
+    setBedenSecimi(null);
+  }
+  async function bedenDegistir(s: Sepet) {
+    try {
+      const r = await api<{ bulundu: boolean; kardesler?: Kardes[] }>(`/api/barkod/${encodeURIComponent(s.barkod)}`);
+      const k = r.kardesler ?? [];
+      if (k.length < 2) return bildir("Bu ürünün başka bedeni yok", "bilgi");
+      setBedenSecimi({ urunAdi: s.urunAdi, marka: s.marka, gorselUrl: s.gorselUrl, renk: s.renk, kardesler: k, degistirId: s.id });
+    } catch (e) { bildir((e as Error).message, "hata"); }
+  }
 
   const ara = sepet.reduce((t, s) => t + s.fiyat * s.adet, 0);
   const ind = Math.min(Math.max(sayi(indirim) || 0, 0), ara);
@@ -102,7 +144,7 @@ export function SatisIstemci({ yonetici, subeAdi, kasiyerAdi }: { yonetici: bool
               <UrunGorseli src={s.gorselUrl} ad={s.urunAdi} marka={s.marka} className="size-14 shrink-0 rounded-xl" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{s.urunAdi}</p>
-                <p className="text-xs text-muted">{s.marka && `${s.marka} · `}{s.renk} · {s.beden}</p>
+                <p className="text-xs text-muted">{s.marka && `${s.marka} · `}{s.renk} · <button type="button" onClick={() => void bedenDegistir(s)} aria-label={`Bedeni değiştir (şu an ${s.beden})`} className="rounded-md bg-surface-2 px-1.5 py-0.5 font-semibold text-foreground underline-offset-2 hover:underline">{s.beden} ▾</button></p>
                 <div className="mt-1.5 flex items-center gap-2">
                   <div className="flex items-center rounded-lg border border-border">
                     <button onClick={() => adetDegistir(s, -1)} aria-label="Azalt" className="grid size-9 place-items-center text-muted hover:text-foreground"><Minus className="size-4" /></button>
@@ -174,6 +216,28 @@ export function SatisIstemci({ yonetici, subeAdi, kasiyerAdi }: { yonetici: bool
       </div>
       <Modal acik={sepetAcik} kapat={() => setSepetAcik(false)} baslik="Ödeme">
         <Odeme odeme={odeme} setOdeme={setOdeme} ara={ara} ind={ind} toplam={toplam} indirim={indirim} setIndirim={setIndirim} yonetici={yonetici} bos={sepet.length === 0} gonderiyor={gonderiyor} tamamla={tamamla} icte />
+      </Modal>
+
+      <Modal acik={!!bedenSecimi} kapat={() => setBedenSecimi(null)} baslik={bedenSecimi?.degistirId ? "Bedeni değiştir" : "Hangi beden satıldı?"}>
+        {bedenSecimi && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <UrunGorseli src={bedenSecimi.gorselUrl} ad={bedenSecimi.urunAdi} marka={bedenSecimi.marka} className="size-14 shrink-0 rounded-xl" />
+              <div className="min-w-0"><p className="truncate text-sm font-medium">{bedenSecimi.urunAdi}</p><p className="text-xs text-muted">{bedenSecimi.marka && `${bedenSecimi.marka} · `}{bedenSecimi.renk}</p></div>
+            </div>
+            <p className="text-sm text-muted">Müşterinin aldığı bedene dokunun; stok o bedenden düşer.</p>
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4" role="group" aria-label="Beden seçimi">
+              {bedenSecimi.kardesler.map((k) => (
+                <button key={k.id} type="button" onClick={() => bedenSec(k)} disabled={k.stok <= 0} aria-label={`Beden ${k.beden}, ${k.stok} adet`}
+                  className={cn("flex min-h-14 flex-col items-center justify-center rounded-xl border text-sm transition", k.stok <= 0 ? "border-border opacity-40" : "border-border bg-surface hover:border-accent hover:shadow-md active:scale-[0.98]")}>
+                  <b className="text-base">{k.beden}</b>
+                  <span className={cn("text-xs", k.stok <= 0 ? "text-danger" : k.stok <= 2 ? "text-warn" : "text-muted")}>{k.stok <= 0 ? "tükendi" : `${k.stok} adet`}</span>
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-end"><Buton varyant="ikincil" onClick={() => setBedenSecimi(null)}>Vazgeç</Buton></div>
+          </div>
+        )}
       </Modal>
 
       <Modal acik={!!fis} kapat={() => setFis(null)} baslik="Satış tamamlandı">

@@ -2,6 +2,7 @@ import { handler, IsHatasi } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import { barkodTemizle } from "@/lib/barkod";
 import { maliyetGorebilir } from "@/lib/rbac";
+import { bedenSirasi } from "@/lib/giyim";
 
 /** Barkoddan varyant bul: POS, mal kabul, toplu giriş ve sayım bunu kullanır. Stok kapsamdaki şubeye göredir. */
 export const GET = handler({}, async ({ kullanici, kapsam, params }) => {
@@ -13,7 +14,14 @@ export const GET = handler({}, async ({ kullanici, kapsam, params }) => {
   });
   if (!v) return { bulundu: false, barkod: kod };
   const stok = v.stoklar.reduce((t, s) => t + s.miktar, 0);
+  // Aynı ürünün aynı renkteki diğer bedenleri: satışta "hangi beden?" sorusu ve beden değiştirme için
+  const kardesler = (await prisma.varyant.findMany({
+    where: { urunId: v.urunId, renk: v.renk, aktif: true },
+    include: { stoklar: { where: kapsam ? { subeId: kapsam } : undefined } },
+  })).map((k) => ({ id: k.id, beden: k.beden, barkod: k.barkod, satisFiyati: Number(k.satisFiyati), stok: k.stoklar.reduce((t, s) => t + s.miktar, 0) }))
+    .sort((a, b) => bedenSirasi(a.beden) - bedenSirasi(b.beden));
   return {
+    kardesler,
     bulundu: true,
     barkod: kod,
     varyant: {

@@ -511,3 +511,48 @@ test("Ürün silme: süper admin ürünü kalıcı siler; uyarı kapsamı göste
   // Müdür ürün silemez
   expect((await cihazlar.mudur.page.request.delete("/api/urunler/yok-boyle-bir-id", { headers: { origin: ORIGIN } })).status()).toBe(403);
 });
+
+test("Satışta beden sorulur: üretici barkodu okununca 'hangi beden?' çıkar; satılan bedenin stoğu düşer; sepette beden değiştirilebilir", async () => {
+  const k = cihazlar.kasiyer.page;
+  const pc = cihazlar.pc.page;
+  const B_KAZAK = ean("869000000010"); // üretici barkodu sistemde yalnızca XL'e bağlı; M ve 3XL'in sistem barkodu var
+  const stok = async () => {
+    const l = (await (await pc.request.get(`/api/pos/ara?q=${encodeURIComponent("Kapüşonlu Kazak")}`)).json()).sonuclar as { beden: string; stok: number }[];
+    return Object.fromEntries(l.map((v) => [v.beden, v.stok]));
+  };
+  expect(await stok()).toEqual({ XL: 5, M: 3, "3XL": 3 });
+
+  await k.goto("/satis");
+  const barkod = k.getByLabel("Barkod");
+  await yaz(barkod, B_KAZAK);
+  await barkod.press("Enter");
+  const pencere = k.getByRole("dialog", { name: "Hangi beden satıldı?" });
+  await expect(pencere).toBeVisible();
+  await expect(pencere.getByRole("button", { name: /Beden XL, 5 adet/ })).toBeVisible();
+  await expect(pencere.getByRole("button", { name: /Beden 3XL, 3 adet/ })).toBeVisible();
+  const sepet = k.getByRole("complementary", { name: "Sepet" });
+  await expect(sepet.getByText("(1 ürün)")).toHaveCount(0); // soru cevaplanmadan sepete eklenmez (yanlış beden düşmesin)
+  await pencere.getByRole("button", { name: /Beden M, 3 adet/ }).click();
+  await expect(sepet.getByText("(1 ürün)")).toBeVisible();
+  await expect(sepet.getByRole("button", { name: /Bedeni değiştir \(şu an M\)/ })).toBeVisible();
+
+  // Müşteri fikrini değiştirdi: M yerine 3XL
+  await sepet.getByRole("button", { name: /Bedeni değiştir/ }).click();
+  await k.getByRole("dialog", { name: "Bedeni değiştir" }).getByRole("button", { name: /Beden 3XL/ }).click();
+  await expect(sepet.getByRole("button", { name: /Bedeni değiştir \(şu an 3XL\)/ })).toBeVisible();
+  await expect(sepet.getByText("(1 ürün)")).toBeVisible();
+
+  await k.getByRole("button", { name: /Ödemeye geç/ }).tap();
+  await k.getByRole("dialog").getByRole("radio", { name: "Nakit" }).tap();
+  await k.getByRole("dialog").getByRole("button", { name: "Satışı tamamla" }).tap();
+  await expect(k.getByText("Satış kaydedildi")).toBeVisible();
+  expect(await stok()).toEqual({ XL: 5, M: 3, "3XL": 2 }); // yalnızca 3XL düştü
+  await k.getByRole("button", { name: "Yeni satış" }).click();
+
+  // Sistem barkodu (beden belli) sorulmadan doğrudan eklenir
+  const m = (await (await pc.request.get(`/api/pos/ara?q=${encodeURIComponent("Kapüşonlu Kazak")}`)).json()).sonuclar.find((v: { beden: string }) => v.beden === "M") as { barkod: string };
+  await yaz(k.getByLabel("Barkod"), m.barkod);
+  await k.getByLabel("Barkod").press("Enter");
+  await expect(k.getByRole("complementary", { name: "Sepet" }).getByText("(1 ürün)")).toBeVisible();
+  await expect(k.getByRole("dialog", { name: "Hangi beden satıldı?" })).toHaveCount(0);
+});
