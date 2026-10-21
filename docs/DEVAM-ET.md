@@ -107,3 +107,6 @@ Yerel demo giriş bilgileri: yönetici = `.env`'deki SEED_ADMIN_*; müdür `merk
 - Veri değiştiren her API `handler()` (`src/lib/api.ts`) ile yazılır: kimlik, rol, şube kapsamı, zod doğrulaması ve önbellek tazeleme orada. **Şube kapsamını istemciden gelen değere bırakmayın.**
 - Canlı veritabanında yıkıcı komut çalıştırmayın; önce kullanıcıdan açık onay alın. Gizli değerleri repoya/sohbete yazmayın.
 - Kullanıcı Türkçe konuşur ve teknik olmayan, müşteriye anlatılabilir açıklamalar tercih eder; işleri hızlı ve eksiksiz bitirmeyi bekler.
+
+## Yedek, izleme, kurtarma
+Bkz. `docs/YEDEK-VE-KURTARMA.md` (günlük yedek, geri yükleme adımları, çöp temizliği) ve `docs/HESAP-DEVIR.md` (hesap listesi, şifresiz).

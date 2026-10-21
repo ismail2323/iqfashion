@@ -1,0 +1,20 @@
+# Sistem izleme: her 30 dakikada uygulamanın ayakta olduğunu kontrol eder (veritabanını uyandırmaz).
+# Günde bir kez (09:00 Türkiye) veritabanı bağlantısı da denenir. Başarısız olursa GitHub e-posta gönderir.
+name: Sistem izleme
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  kontrol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Uygulama ayakta mı?
+        run: curl -fsS --retry 3 --retry-delay 10 --max-time 30 "https://iqfashion.vercel.app/api/saglik?hafif=1"
+      - name: Veritabanı bağlantısı (günde bir kez)
+        if: github.event.schedule == '0 6 * * *' || github.event_name == 'workflow_dispatch'
+        run: curl -fsS --retry 3 --retry-delay 20 --max-time 60 "https://iqfashion.vercel.app/api/saglik"

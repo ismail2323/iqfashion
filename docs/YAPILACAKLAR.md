@@ -14,7 +14,7 @@
 - [ ] Neon'u **Frankfurt**'a taşı + `vercel.json` bölgesi `fra1` (Türkiye'den gecikme; `docs/YAYIN-VE-VERITABANI.md` §5).
 - [ ] Uyku gecikmesi için mesai saatlerinde ısıtma (cron-job.org → `/api/saglik`) ya da ücretli Neon planı.
 - [ ] Kendi alan adı (ör. `iqfashion.com`) bağla.
-- [ ] Haftalık otomatik yedek (Neon branch/pg_dump veya zamanlanmış iş) – şu an yedek elle indirilir.
+- [x] Günlük otomatik yedek + geri yükleme denemesi + izleme (GitHub Actions) – kurulum: depoyu Private yap + `DIRECT_URL` gizli değeri (bkz. docs/YEDEK-VE-KURTARMA.md).
 - [ ] Kapsam dışı kalanlar: toplu içe aktarma için **Excel/CSV** (tedarikçi listeleri) – güvenli bir kütüphane seçilmeli (eski `xlsx` paketi açıklı olduğundan çıkarıldı).
 - [ ] Ödeme dağılımı grafiği iade öncesi tutarları gösterir (muhasebede not var); iadeleri ödeme tipine yaymak istenirse `Satis`'a iade kaydı tablosu eklenmeli.
 

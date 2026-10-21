@@ -1,0 +1,75 @@
+# Günlük otomatik yedek (her gece 03:30 Türkiye saati) + güvenli çöp temizliği.
+# Gerekli gizli değer: GitHub → Settings → Secrets and variables → Actions → DIRECT_URL (Neon doğrudan bağlantı adresi).
+# Yedek dosyası "Artifacts" olarak 30 gün saklanır (Actions → ilgili çalışma → en altta). DEPO MUTLAKA PRIVATE OLMALI.
+# Yedek alınamazsa çalışma "başarısız" olur ve GitHub e-posta ile haber verir.
+name: Gunluk yedek
+on:
+  schedule:
+    - cron: "30 0 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  yedek:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      deneme:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: deneme
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: PostgreSQL 18 istemcisi (Neon ile aynı sürüm)
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          . /etc/os-release
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $VERSION_CODENAME-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-18
+      - name: Yedek al ve doğrula
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          test -n "$DIRECT_URL" || { echo "::error::DIRECT_URL gizli degeri tanimli degil"; exit 1; }
+          D="iqfashion_$(date -u +%Y-%m-%d_%H%M).dump"
+          /usr/lib/postgresql/18/bin/pg_dump "$DIRECT_URL" -Fc --no-owner --no-privileges -f "$D"
+          # Dosya okunabiliyor ve temel tablolar içinde mi?
+          /usr/lib/postgresql/18/bin/pg_restore --list "$D" > liste.txt
+          for t in Urun Varyant Stok Satis Kullanici; do grep -q "TABLE DATA public \"$t\"" liste.txt || { echo "::error::Yedekte $t tablosu yok"; exit 1; }; done
+          ls -l "$D"
+          rm liste.txt
+          # GERÇEK GERİ YÜKLEME DENEMESİ: yedek boş bir deneme veritabanına yüklenir, kayıt sayıları canlıyla karşılaştırılır
+          export PGPASSWORD=deneme
+          /usr/lib/postgresql/18/bin/psql -h localhost -U postgres -qc "CREATE DATABASE geri_yukleme_denemesi"
+          /usr/lib/postgresql/18/bin/pg_restore -h localhost -U postgres -d geri_yukleme_denemesi --no-owner "$D"
+          for t in Urun Varyant Stok Satis Kullanici Sube; do
+            a=$(/usr/lib/postgresql/18/bin/psql "$DIRECT_URL" -Atc "SELECT count(*) FROM \"$t\"")
+            b=$(/usr/lib/postgresql/18/bin/psql -h localhost -U postgres -d geri_yukleme_denemesi -Atc "SELECT count(*) FROM \"$t\"")
+            echo "$t: canli=$a yedek=$b"
+            # yedek alınırken gelen yeni kayıt olabilir: yedekte fazla/eksik 5'ten çoksa sorun var
+            d=$((a-b)); d=${d#-}; [ "$d" -le 5 ] || { echo "::error::$t sayilari tutmuyor"; exit 1; }
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iqfashion-yedek
+          path: "*.dump"
+          retention-days: 30
+          if-no-files-found: error
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Güvenli çöp temizliği (yedek başarılıysa; ürün/stok/satışa dokunmaz)
+        continue-on-error: true
+        env:
+          DATABASE_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          npm ci --ignore-scripts
+          npx prisma generate
+          npm run temizlik -- --uygula
