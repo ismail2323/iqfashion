@@ -119,6 +119,8 @@ describe("ürün silme", () => {
   it("ürün, varyantlar, stok ve fiyat geçmişi gider; diğer ürünler ve muhasebe belgeleri korunur", async () => {
     await topluUrunGirisi([satir("1", { adet: 4 }), satir("2", { beden: "34", adet: 6 }), satir("3", { ad: "Başka Pantolon", renk: "Siyah", adet: 2 })], t.a.id, t.mudur);
     const silinecek = await prisma.urun.findFirstOrThrow({ where: { ad: "Slim Kot" } });
+    const g = await prisma.gorsel.create({ data: { mime: "image/png", veri: new Uint8Array([1, 2, 3]), boyut: 3 } });
+    await prisma.urun.update({ where: { id: silinecek.id }, data: { gorselUrl: `/api/gorsel/${g.id}` } });
     expect(await urunOzeti(silinecek.id)).toMatchObject({ varyant: 2, stokAdedi: 10 });
     const r = await urunSil(silinecek.id);
     expect(r).toMatchObject({ ad: "Slim Kot", varyant: 2, stokAdedi: 10 });
@@ -127,6 +129,7 @@ describe("ürün silme", () => {
     expect(await prisma.urun.count()).toBe(1);
     expect((await prisma.stok.aggregate({ _sum: { miktar: true } }))._sum.miktar).toBe(2); // yalnızca diğer ürünün stoğu kaldı
     expect(await prisma.alisBelgesi.count()).toBe(2); // iki ürün grubu = iki alış belgesi; ikisi de (muhasebe) korunur
+    expect(await prisma.gorsel.findUnique({ where: { id: g.id } })).toBeNull(); // fotoğrafı da gitti (yer açıldı)
     await expect(urunSil(silinecek.id)).rejects.toThrow(/bulunamadı/);
   });
 });

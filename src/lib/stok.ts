@@ -422,7 +422,7 @@ export async function urunOzeti(urunId: string) {
  * Muhasebe bozulmasın diye geçmiş satış/alış belgeleri ve stok hareketleri (ürün adı yazılı kalarak) korunur.
  */
 export async function urunSil(urunId: string) {
-  const u = await prisma.urun.findUnique({ where: { id: urunId }, select: { id: true, ad: true } });
+  const u = await prisma.urun.findUnique({ where: { id: urunId }, select: { id: true, ad: true, gorselUrl: true } });
   if (!u) throw new IsHatasi("Ürün bulunamadı", 404);
   const ozet = await urunOzeti(urunId);
   await prisma.$transaction(async (tx) => {
@@ -434,6 +434,9 @@ export async function urunSil(urunId: string) {
       if ((await tx.transferKalemi.count({ where: { transferId } })) === 0) await tx.transfer.delete({ where: { id: transferId } });
     }
     await tx.urun.delete({ where: { id: urunId } }); // varyant, stok, fiyat geçmişi cascade
+    // Ürün fotoğrafı veritabanında durur: başka ürün kullanmıyorsa silinir (boş yer kaplamasın)
+    const gid = /^\/api\/gorsel\/([\w-]+)$/.exec(u.gorselUrl ?? "")?.[1];
+    if (gid && (await tx.urun.count({ where: { gorselUrl: u.gorselUrl } })) === 0) await tx.gorsel.deleteMany({ where: { id: gid } });
   });
   return { ad: u.ad, ...ozet };
 }
